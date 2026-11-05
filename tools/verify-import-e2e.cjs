@@ -28,6 +28,7 @@ async function ui(page) {
       ),
       sheets: sheetBar ? [...sheetBar.querySelectorAll('button')].map(text) : [],
       headers: [...document.querySelectorAll('.ag-header-cell-text')].map(text),
+      notes: [...document.querySelectorAll('[data-testid="import-notes"] li')].map(text),
       toasts: [...document.querySelectorAll('[data-testid="toast"]')].map((t) => ({
         type: t.getAttribute('data-type'),
         text: text(t),
@@ -77,7 +78,12 @@ async function openSheet(page, name) {
     let s = await waitUntil(page, (x) => x.files.length === 1 && x.sheets.length > 0);
     check('financial workbook imported', s.files[0] === 'Financial_BP_Rolling_Forecast.xlsx', `${Date.now() - t0} ms`);
     check('stacked tables split into sheets', s.sheets.some((n) => n.startsWith('Summary · Monthly trend')));
-    check('notice toast for skipped rows', s.toasts.some((t) => t.type === 'info' && t.text.includes('说明行')));
+    check('short notice toast', s.toasts.some((t) => t.type === 'info' && t.text.includes('条导入说明')));
+    await page.click('[data-testid="import-notes"] button');
+    await sleep(300);
+    s = await ui(page);
+    check('import notes list skipped rows', s.notes.some((n) => n.includes('说明行')), `${s.notes.length} notes`);
+    check('no false uncached-formula notice', !s.notes.some((n) => n.includes('公式')));
     await openSheet(page, 'Revenue Build');
     s = await ui(page);
     check('Revenue Build month headers', s.headers.slice(0, 3).join('|') === 'Month|2024-01|2024-02', s.headers.slice(0, 3).join('|'));
@@ -90,10 +96,11 @@ async function openSheet(page, name) {
     check('batch imported 3 of 4', s.files.length === 4, s.files.join(', '));
     const err = s.toasts.find((t) => t.type === 'error');
     check('invalid.json error toast with position', !!err && err.text.includes('invalid.json') && err.text.includes('第 1 行'), err?.text);
-    check('GBK notice shown', s.toasts.some((t) => t.text.includes('gbk_encoded.csv') && t.text.includes('GB18030')));
-
     await openFile(page, 'gbk_encoded.csv');
+    await page.click('[data-testid="import-notes"] button');
+    await sleep(300);
     s = await ui(page);
+    check('GBK encoding note', s.notes.some((n) => n.includes('GB18030')), s.notes.join(' | '));
     check('GBK csv headers', s.headers.join('|') === '客户|城市|金额|备注', s.headers.join('|'));
 
     await openFile(page, 'report_layouts.xlsx');

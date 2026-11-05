@@ -270,7 +270,8 @@ fn count_uncached_formulas<RS: std::io::Read + std::io::Seek>(
     };
     formulas
         .used_cells()
-        .filter(|(_, _, f)| !f.is_empty())
+        // `=""` (blank-out placeholder) evaluates to an empty string, so no cache is needed.
+        .filter(|(_, _, f)| !f.is_empty() && f.trim() != "\"\"")
         .filter(|(r, c, _)| {
             // An empty `<v></v>` comes back as an empty string rather than `Empty`.
             let cached = values.get_value((fr + *r as u32, fc + *c as u32));

@@ -17,6 +17,19 @@ import ExportModal from '../components/ExportModal';
 import { parseNumericCell } from '../utils/numberUtils';
 import type { ChartType, ChartConfig } from '../types';
 
+/** KPI cards show at most two decimals; the table below keeps full precision. */
+function formatKpi(value: number): string {
+  return value.toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+}
+
+/** Step the font down for long numbers so they stay inside the card. */
+function kpiValueSize(value: number): string {
+  const len = formatKpi(value).length;
+  if (len > 16) return 'text-base';
+  if (len > 12) return 'text-lg';
+  return 'text-2xl';
+}
+
 const ReportView: React.FC = () => {
   const { files, activeFileIndex, activeSheetIndex, setActiveFile, setActiveSheet } =
     useDataStore();
@@ -267,15 +280,15 @@ const ReportView: React.FC = () => {
             </div>
           </div>
 
-          <div className="border-t border-gray-100 pt-4">
-            <h4 className="font-semibold text-gray-800">核心指标卡片 (KPI)</h4>
+          <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
+            <h4 className="font-semibold text-gray-800 dark:text-gray-100">核心指标卡片 (KPI)</h4>
             <div className="mt-3 space-y-2">
               <div>
-                <label className="text-[11px] font-medium text-gray-500">指标 1 (求和统计)</label>
+                <label className="text-[11px] font-medium text-gray-500 dark:text-gray-400">指标 1 (求和统计)</label>
                 <select
                   value={kpiCol1}
                   onChange={(e) => setKpiCol1(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 outline-none"
+                  className="mt-1 w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-2 py-1.5 text-gray-800 dark:text-gray-100 outline-none focus:border-blue-500"
                 >
                   <option value="">不展示</option>
                   {currentSheet?.headers.map((h) => (
@@ -286,11 +299,11 @@ const ReportView: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="text-[11px] font-medium text-gray-500">指标 2 (均值统计)</label>
+                <label className="text-[11px] font-medium text-gray-500 dark:text-gray-400">指标 2 (均值统计)</label>
                 <select
                   value={kpiCol2}
                   onChange={(e) => setKpiCol2(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 outline-none"
+                  className="mt-1 w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-2 py-1.5 text-gray-800 dark:text-gray-100 outline-none focus:border-blue-500"
                 >
                   <option value="">不展示</option>
                   {currentSheet?.headers.map((h) => (
@@ -303,18 +316,18 @@ const ReportView: React.FC = () => {
             </div>
           </div>
 
-          <div className="border-t border-gray-100 pt-4">
-            <h4 className="flex items-center gap-1.5 font-semibold text-gray-800">
+          <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
+            <h4 className="flex items-center gap-1.5 font-semibold text-gray-800 dark:text-gray-100">
               <BarChart2 size={14} className="text-blue-500" />
               嵌入图表配置
             </h4>
             <div className="mt-3 space-y-2">
               <div>
-                <label className="text-[11px] font-medium text-gray-500">图表类型</label>
+                <label className="text-[11px] font-medium text-gray-500 dark:text-gray-400">图表类型</label>
                 <select
                   value={chartType}
                   onChange={(e) => setChartType(e.target.value as ChartType)}
-                  className="mt-1 w-full rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 outline-none"
+                  className="mt-1 w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-2 py-1.5 text-gray-800 dark:text-gray-100 outline-none focus:border-blue-500"
                 >
                   <option value="bar">柱状图</option>
                   <option value="line">折线图</option>
@@ -323,11 +336,11 @@ const ReportView: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="text-[11px] font-medium text-gray-500">X 轴维度</label>
+                <label className="text-[11px] font-medium text-gray-500 dark:text-gray-400">X 轴维度</label>
                 <select
                   value={chartX}
                   onChange={(e) => setChartX(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 outline-none"
+                  className="mt-1 w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-2 py-1.5 text-gray-800 dark:text-gray-100 outline-none focus:border-blue-500"
                 >
                   {currentSheet?.headers.map((h) => (
                     <option key={h} value={h}>
@@ -337,11 +350,11 @@ const ReportView: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="text-[11px] font-medium text-gray-500">Y 轴数值序列</label>
+                <label className="text-[11px] font-medium text-gray-500 dark:text-gray-400">Y 轴数值序列</label>
                 <select
                   value={chartYs[0] || ''}
                   onChange={(e) => setChartYs([e.target.value])}
-                  className="mt-1 w-full rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 outline-none"
+                  className="mt-1 w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-2 py-1.5 text-gray-800 dark:text-gray-100 outline-none focus:border-blue-500"
                 >
                   {currentSheet?.headers
                     .filter((h) => h !== chartX)
@@ -418,16 +431,16 @@ const ReportView: React.FC = () => {
                   {kpiStats.stat1 && (
                     <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-4">
                       <p className="text-[11px] font-medium text-blue-500">{kpiCol1} (总和)</p>
-                      <p className="mt-1 text-2xl font-bold text-blue-700">
-                        {kpiStats.stat1.sum.toLocaleString()}
+                      <p className={`mt-1 font-bold text-blue-700 tabular-nums break-all ${kpiValueSize(kpiStats.stat1.sum)}`}>
+                        {formatKpi(kpiStats.stat1.sum)}
                       </p>
                     </div>
                   )}
                   {kpiStats.stat2 && (
                     <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-4">
                       <p className="text-[11px] font-medium text-emerald-600">{kpiCol2} (平均值)</p>
-                      <p className="mt-1 text-2xl font-bold text-emerald-700">
-                        {kpiStats.stat2.avg.toLocaleString()}
+                      <p className={`mt-1 font-bold text-emerald-700 tabular-nums break-all ${kpiValueSize(kpiStats.stat2.avg)}`}>
+                        {formatKpi(kpiStats.stat2.avg)}
                       </p>
                     </div>
                   )}

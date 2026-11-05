@@ -2,14 +2,29 @@ import React, { useMemo, useRef, useCallback, useEffect } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import type { ColDef, GridApi, GridReadyEvent } from 'ag-grid-community';
 import { AllCommunityModule, ModuleRegistry } from 'ag-grid-community';
+import { AG_GRID_LOCALE_CN } from '@ag-grid-community/locale';
 import { Maximize2, Minimize2, ZoomIn, ZoomOut } from 'lucide-react';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 import type { SheetData } from '../types';
 import { useDataStore, getIsDark } from '../store/useDataStore';
-import { compareCellsNumeric } from '../utils/numberUtils';
+import { compareCellsNumeric, parseNumericCell } from '../utils/numberUtils';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
+
+/** A column is numeric when most of its non-empty cells parse as numbers. */
+function isNumericColumn(rows: string[][], col: number): boolean {
+  let filled = 0;
+  let numeric = 0;
+  for (const row of rows) {
+    const v = row[col];
+    if (v === undefined || v === '') continue;
+    filled += 1;
+    if (!Number.isNaN(parseNumericCell(v))) numeric += 1;
+    if (filled >= 200) break;
+  }
+  return filled > 0 && numeric / filled >= 0.8;
+}
 
 interface DataTableProps {
   sheetData: SheetData;
@@ -41,13 +56,14 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData }) => {
         // Keyed by index: AG Grid reads dots in `field` as nested paths ("address.city").
         field: `c${i}`,
         headerName: header,
+        type: isNumericColumn(sheetData.rows, i) ? 'rightAligned' : undefined,
         sortable: true,
         filter: true,
         resizable: true,
         minWidth: 105,
         comparator: compareCellsNumeric,
       })),
-    [sheetData.headers],
+    [sheetData.headers, sheetData.rows],
   );
 
   const rowData = useMemo(
@@ -121,6 +137,9 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData }) => {
           defaultColDef={defaultColDef}
           autoSizeStrategy={autoSizeStrategy}
           getRowId={(params) => params.data.__rowId}
+          // Styling is built on the v32 CSS file themes (ag-theme-alpine + --ag-* in index.css).
+          theme="legacy"
+          localeText={AG_GRID_LOCALE_CN}
           onGridReady={handleGridReady}
           animateRows
           suppressCellFocus

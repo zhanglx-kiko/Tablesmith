@@ -44,12 +44,14 @@ export function useFileImport(): FileImportApi {
         const sheetCount = o.result.file.sheets.length;
         const rowCount = o.result.file.sheets.reduce((n, s) => n + s.rows.length, 0);
         const summary = `${sheetCount} 个工作表，共 ${rowCount.toLocaleString()} 行`;
-        if (o.result.notices.length > 0) {
+        const noteCount = o.result.notices.length;
+        if (noteCount > 0) {
+          // Details stay on the file (FileData.importNotes) and are listed above its table.
           showToast({
             type: 'info',
             title: `已导入 ${o.fileName}`,
-            message: [summary, ...o.result.notices].join('\n'),
-            duration: 9000,
+            message: `${summary}；${noteCount} 条导入说明，见表格上方`,
+            duration: 5000,
           });
         } else if (outcomes.length > 1) {
           showToast({ type: 'success', title: `已导入 ${o.fileName}`, message: summary, duration: 3000 });

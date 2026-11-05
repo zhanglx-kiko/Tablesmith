@@ -11,6 +11,7 @@ import FileDropZone from '../components/FileDropZone';
 import DataTable from '../components/DataTable';
 import ExportModal from '../components/ExportModal';
 import FileTypeIcon from '../components/FileTypeIcon';
+import ImportNotes from '../components/ImportNotes';
 import { exportFile } from '../services/fileService';
 import { useFileImport } from '../hooks/useFileImport';
 
@@ -201,6 +202,8 @@ const DataSourceView: React.FC = () => {
           ))}
         </div>
       )}
+
+      {activeFile?.importNotes && <ImportNotes key={activeFileIndex} notes={activeFile.importNotes} />}
 
       {/* Table */}
       <div className="flex-1 overflow-hidden">

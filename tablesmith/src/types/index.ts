@@ -8,6 +8,8 @@ export interface FileData {
   fileName: string;
   fileType: string;
   sheets: SheetData[];
+  /** What the importer skipped or converted (hidden sheets, note rows, encoding, ...). */
+  importNotes?: string[];
 }
 
 export type ChartType = 'line' | 'bar' | 'pie' | 'scatter' | 'area';

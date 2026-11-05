@@ -70,7 +70,8 @@ function looksLikeSheetJsText(text: string): boolean {
 function finish(fileName: string, ext: string, sheets: SheetData[], notices: string[]): ImportResult {
   const usable = sheets.filter((s) => s.headers.length > 0);
   if (usable.length === 0) throw new ImportError('文件中没有可读取的表格数据');
-  return { file: { fileName, fileType: ext, sheets: usable }, notices };
+  const file = { fileName, fileType: ext, sheets: usable, ...(notices.length > 0 ? { importNotes: notices } : {}) };
+  return { file, notices };
 }
 
 function fromWorkbook(fileName: string, ext: string, workbook: RawWorkbook, extra: string[] = []): ImportResult {
