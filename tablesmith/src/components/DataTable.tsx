@@ -1,16 +1,19 @@
-import React, { useMemo, useRef, useCallback, useEffect } from 'react';
+import React, { useMemo, useRef, useCallback, useEffect, useState } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import type { ColDef, GridApi, GridReadyEvent } from 'ag-grid-community';
 import { AllCommunityModule, ModuleRegistry } from 'ag-grid-community';
 import { AG_GRID_LOCALE_CN } from '@ag-grid-community/locale';
-import { Maximize2, Minimize2, ZoomIn, ZoomOut } from 'lucide-react';
+import { FilterX, Maximize2, Minimize2, ZoomIn, ZoomOut } from 'lucide-react';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 import type { SheetData } from '../types';
 import { useDataStore, getIsDark } from '../store/useDataStore';
-import { compareCellsNumeric, parseNumericCell } from '../utils/numberUtils';
+import { compareCellsNumeric } from '../utils/numberUtils';
+import { looksNumeric } from '../services/import/cellText';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
+
+const LOCALE_TEXT: Record<string, string> = { ...AG_GRID_LOCALE_CN, resetFilter: '清空' };
 
 /** A column is numeric when most of its non-empty cells parse as numbers. */
 function isNumericColumn(rows: string[][], col: number): boolean {
@@ -20,7 +23,7 @@ function isNumericColumn(rows: string[][], col: number): boolean {
     const v = row[col];
     if (v === undefined || v === '') continue;
     filled += 1;
-    if (!Number.isNaN(parseNumericCell(v))) numeric += 1;
+    if (looksNumeric(v)) numeric += 1;
     if (filled >= 200) break;
   }
   return filled > 0 && numeric / filled >= 0.8;
@@ -36,6 +39,8 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData }) => {
   const tableZoom = useDataStore((s) => s.tableZoom);
   const setTableZoom = useDataStore((s) => s.setTableZoom);
   const isDark = getIsDark(theme);
+  /** Rows left after column filters; null when no filter is active. */
+  const [filteredCount, setFilteredCount] = useState<number | null>(null);
   const gridThemeClass = isDark ? 'ag-theme-alpine-dark' : 'ag-theme-alpine';
 
   const zoomRatio = tableZoom / 100;
@@ -56,7 +61,9 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData }) => {
         // Keyed by index: AG Grid reads dots in `field` as nested paths ("address.city").
         field: `c${i}`,
         headerName: header,
-        type: isNumericColumn(sheetData.rows, i) ? 'rightAligned' : undefined,
+        // Right-align numeric cells only; the `rightAligned` type would also flip the header
+        // and move the filter button to the left.
+        cellClass: isNumericColumn(sheetData.rows, i) ? 'ag-right-aligned-cell' : undefined,
         sortable: true,
         filter: true,
         resizable: true,
@@ -83,6 +90,8 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData }) => {
       minWidth: 105,
       sortable: true,
       filter: true,
+      // "清空" in every column filter popup; changes still apply while typing.
+      filterParams: { buttons: ['reset'] },
       resizable: true,
     }),
     [],
@@ -98,6 +107,19 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData }) => {
   const handleGridReady = useCallback((params: GridReadyEvent) => {
     gridApiRef.current = params.api;
   }, []);
+
+  const handleFilterChanged = useCallback(() => {
+    const api = gridApiRef.current;
+    if (!api) return;
+    setFilteredCount(api.isAnyFilterPresent() ? api.getDisplayedRowCount() : null);
+  }, []);
+
+  const handleClearFilters = useCallback(() => {
+    gridApiRef.current?.setFilterModel(null);
+  }, []);
+
+  // A new sheet starts unfiltered.
+  useEffect(() => setFilteredCount(null), [sheetData]);
 
   const handleFitContents = useCallback(() => {
     gridApiRef.current?.autoSizeAllColumns();
@@ -139,8 +161,9 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData }) => {
           getRowId={(params) => params.data.__rowId}
           // Styling is built on the v32 CSS file themes (ag-theme-alpine + --ag-* in index.css).
           theme="legacy"
-          localeText={AG_GRID_LOCALE_CN}
+          localeText={LOCALE_TEXT}
           onGridReady={handleGridReady}
+          onFilterChanged={handleFilterChanged}
           animateRows
           suppressCellFocus
           domLayout="normal"
@@ -148,10 +171,27 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData }) => {
       </div>
       <div className="flex flex-wrap items-center justify-between border-t border-gray-200 dark:border-gray-800 bg-gray-50/70 dark:bg-gray-900/70 px-4 py-1.5 text-xs text-gray-500 dark:text-gray-400 gap-y-1">
         <div className="flex items-center gap-3">
-          <span>
-            共 <strong className="text-gray-700 dark:text-gray-200">{sheetData.rows.length}</strong> 行 ×{' '}
-            <strong className="text-gray-700 dark:text-gray-200">{sheetData.headers.length}</strong> 列
-          </span>
+          {filteredCount === null ? (
+            <span>
+              共 <strong className="text-gray-700 dark:text-gray-200">{sheetData.rows.length}</strong> 行 ×{' '}
+              <strong className="text-gray-700 dark:text-gray-200">{sheetData.headers.length}</strong> 列
+            </span>
+          ) : (
+            <span className="flex items-center gap-2" data-testid="filter-status">
+              <span>
+                已筛选 <strong className="text-blue-600 dark:text-blue-400">{filteredCount}</strong> /{' '}
+                {sheetData.rows.length} 行
+              </span>
+              <button
+                type="button"
+                onClick={handleClearFilters}
+                className="flex items-center gap-1 rounded border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 text-[11px] font-medium text-blue-600 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition cursor-pointer"
+              >
+                <FilterX size={11} />
+                清除全部筛选
+              </button>
+            </span>
+          )}
           <span className="text-gray-300 dark:text-gray-700">|</span>
           <span className="hidden md:inline text-[11px] text-gray-400 dark:text-gray-500">
             支持拖拽/双击列边界微调列宽

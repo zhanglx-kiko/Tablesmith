@@ -74,12 +74,14 @@ body.dark {
   border-right: 1px solid #e2e8f0 !important;
 }
 
-/* Hover effect & hit area on column resize handle */
+/* Column resize handle. It must sit fully inside the header cell: the cell clips overflow,
+   so any part placed past the right edge is unreachable and a drag there moves the
+   neighbouring column instead of resizing. */
 .ag-theme-alpine .ag-header-cell-resize,
 .ag-theme-alpine-dark .ag-header-cell-resize {
-  cursor: col-resize !important;
-  width: 14px !important;
-  right: -7px !important;
+  cursor: ew-resize !important;
+  width: 10px !important;
+  right: 0 !important;
   z-index: 20 !important;
 }
 
@@ -89,7 +91,7 @@ body.dark {
   position: absolute !important;
   top: 10% !important;
   bottom: 10% !important;
-  left: 6px !important;
+  right: 0 !important;
   width: 2px !important;
   background-color: transparent !important;
   border-radius: 1px !important;
@@ -176,13 +178,38 @@ html.dark .ag-header-cell:hover .ag-header-cell-filter-button,
   white-space: nowrap !important;
 }
 
-/* Prevent filter popup input background icon from overlapping with text */
+/* Search icon in the filter popup's text inputs; the input is padded to make room for it. */
+.ag-filter .ag-text-field-input-wrapper {
+  position: relative;
+}
+
+.ag-filter .ag-text-field-input-wrapper::before {
+  content: "";
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  transform: translateY(-50%);
+  background-color: currentColor;
+  opacity: 0.5;
+  pointer-events: none;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
 .ag-filter input.ag-input-field-input,
 .ag-filter-menu input.ag-input-field-input,
 .ag-text-field-input-wrapper input.ag-input-field-input {
   padding-left: 26px !important;
   padding-right: 8px !important;
   border-radius: 6px !important;
+}
+
+/* Keep the resize cursor everywhere while a column is being resized. */
+.ag-column-resizing,
+.ag-column-resizing * {
+  cursor: ew-resize !important;
 }
 
 /* AG Grid v33 complete dark theme overrides */
