@@ -46,7 +46,7 @@ const GlobalToast: React.FC = () => {
             <div className="flex-1 min-w-0">
               <h5 className="text-xs font-semibold leading-tight">{toast.title}</h5>
               {toast.message && (
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 break-all leading-normal font-mono">
+                <p className="mt-1 text-xs text-gray-600 dark:text-gray-300 break-words whitespace-pre-line leading-normal">
                   {toast.message}
                 </p>
               )}

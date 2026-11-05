@@ -8,7 +8,6 @@ export interface FileData {
   fileName: string;
   fileType: string;
   sheets: SheetData[];
-  rawContent?: string;
 }
 
 export type ChartType = 'line' | 'bar' | 'pie' | 'scatter' | 'area';

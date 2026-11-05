@@ -1,7 +1,8 @@
 mod commands;
+mod import;
 
 use commands::{
-    export_csv, export_excel, get_unique_filepath, read_file_data, save_binary_file, save_file,
+    get_unique_filepath, read_file_bytes, read_file_data, save_binary_file, save_file,
     show_in_folder,
 };
 
@@ -13,11 +14,10 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             read_file_data,
+            read_file_bytes,
             save_file,
             save_binary_file,
             show_in_folder,
-            export_csv,
-            export_excel,
             get_unique_filepath,
         ])
         .run(tauri::generate_context!())

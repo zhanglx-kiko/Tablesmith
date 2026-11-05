@@ -1,0 +1,4 @@
+{"ts":"2024-01-01T10:00:00Z","event":"login","user":"u1"}
+{"ts":"2024-01-01T10:05:00Z","event":"view","user":"u1","page":"/home"}
+
+{"ts":"2024-01-01T10:06:00Z","event":"logout","user":"u1"}

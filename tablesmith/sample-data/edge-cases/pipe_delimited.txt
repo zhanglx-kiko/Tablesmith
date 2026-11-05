@@ -1,0 +1,3 @@
+code|label|value
+A|Alpha|1
+B|Beta|2

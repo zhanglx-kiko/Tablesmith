@@ -1,0 +1,50 @@
+{
+  "meta": {
+    "exportedAt": "2024-05-01",
+    "source": "crm"
+  },
+  "data": {
+    "customers": [
+      {
+        "id": 1,
+        "name": "Acme",
+        "address": {
+          "city": "Berlin",
+          "zip": "10115"
+        },
+        "tags": [
+          "vip",
+          "eu"
+        ],
+        "active": true
+      },
+      {
+        "id": 2,
+        "name": "Globex",
+        "address": {
+          "city": "Paris"
+        },
+        "tags": [],
+        "active": false,
+        "note": null
+      }
+    ],
+    "orders": [
+      {
+        "orderId": "O-1",
+        "customerId": 1,
+        "lines": [
+          {
+            "sku": "A",
+            "qty": 2
+          }
+        ]
+      },
+      {
+        "orderId": "O-2",
+        "customerId": 2,
+        "total": 99.9
+      }
+    ]
+  }
+}

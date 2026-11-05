@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ns:Orders xmlns:ns="urn:example:orders" exported="2024-06-01">
+  <ns:Order id="O-1" status="paid">
+    <ns:Customer>Acme</ns:Customer>
+    <ns:Total currency="EUR">120.50</ns:Total>
+    <ns:Tag>vip</ns:Tag>
+    <ns:Tag>eu</ns:Tag>
+    <ns:Note><![CDATA[Deliver <before> noon & call]]></ns:Note>
+  </ns:Order>
+  <ns:Order id="O-2" status="open">
+    <ns:Customer>Globex</ns:Customer>
+    <ns:Total currency="USD">99</ns:Total>
+  </ns:Order>
+</ns:Orders>

@@ -7,9 +7,6 @@ import {
   Settings2,
   ChevronLeft,
   ChevronRight,
-  FileSpreadsheet,
-  FileJson,
-  FileCode,
   FileText,
   X,
   BarChart2,
@@ -20,6 +17,7 @@ import {
   Monitor,
 } from 'lucide-react';
 import { useDataStore } from '../store/useDataStore';
+import FileTypeIcon from './FileTypeIcon';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -33,24 +31,6 @@ const NAV_ITEMS = [
   { to: '/process', label: '数据处理', Icon: Settings2 },
   { to: '/report', label: '报表生成', Icon: FileText },
 ];
-
-function fileIcon(type: string) {
-  switch (type) {
-    case 'xlsx':
-    case 'xls':
-      return <FileSpreadsheet size={14} className="text-emerald-500" />;
-    case 'json':
-      return <FileJson size={14} className="text-amber-500" />;
-    case 'xml':
-      return <FileCode size={14} className="text-sky-500" />;
-    case 'xsd':
-      return <FileCode size={14} className="text-pink-500" />;
-    case 'csv':
-      return <FileText size={14} className="text-violet-500" />;
-    default:
-      return <FileText size={14} className="text-gray-400" />;
-  }
-}
 
 const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
   const location = useLocation();
@@ -73,7 +53,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
       showToast({
         type: 'info',
         title: '该历史文件未在本地缓存',
-        message: '请点击“导入新文件”重新打开此文件',
+        message: '请点击“导入文件”重新打开此文件',
       });
     }
   };
@@ -88,7 +68,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
         <BarChart2 size={22} className="text-blue-600 dark:text-blue-400 shrink-0" />
         {!collapsed && (
           <span className="text-[15px] font-semibold tracking-tight text-gray-800 dark:text-gray-100">
-            表匠
+            Tablesmith
           </span>
         )}
       </div>
@@ -134,7 +114,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
                       : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
                   }`}
               >
-                {fileIcon(f.fileType)}
+                <FileTypeIcon type={f.fileType} />
                 <span className="flex-1 truncate">{f.fileName}</span>
                 <button
                   onClick={(e) => {

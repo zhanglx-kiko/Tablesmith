@@ -492,7 +492,7 @@ const ReportView: React.FC = () => {
 
             {/* Footer */}
             <div className="mt-12 border-t border-gray-100 pt-3 flex items-center justify-between text-[11px] text-gray-400">
-              <span>生成工具: 表匠 Tablesmith</span>
+              <span>生成工具: Tablesmith</span>
               <span>第 1 页 / 共 1 页</span>
             </div>
           </div>
@@ -503,7 +503,7 @@ const ReportView: React.FC = () => {
       <ExportModal
         isOpen={isExportModalOpen}
         title="导出 A4 PDF 商业报告"
-        defaultFileName={reportTitle ? `${reportTitle}_分析报告` : '表匠_商业报告'}
+        defaultFileName={reportTitle ? `${reportTitle}_分析报告` : 'Tablesmith_商业报告'}
         format="pdf"
         isExporting={isExporting}
         onClose={() => setIsExportModalOpen(false)}

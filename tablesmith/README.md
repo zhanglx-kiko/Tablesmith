@@ -7,17 +7,20 @@
 ## 🌟 核心功能
 
 1. **多数据源读取与预览**
-   - 支持 `.xlsx` / `.xls`（多 Sheet 自由切换与日期格式化）、`.csv`、`.xsd`（XML Schema 模式定义）、`.xml`、`.json`、`.yaml`
-   - **XSD 模式定义深度解析与元数据透视**：支持将 `.xsd` 文件结构化提取为 5 大全景工作表（`Elements 元素结构`、`Attributes 字段属性`、`SimpleTypes 枚举与约束`、`Constraints 主外键与唯一性约束`、`SchemaSummary 命名空间元信息`），无缝纳管企业级数据契约与接口规范
-   - **复杂多编码与多分隔符 CSV 自适应引擎**：自动识别并剥除 UTF-8 BOM，原生支持 GBK/GB18030（中文 Windows Excel 默认编码），自动嗅探逗号（`,`）、分号（`;`，欧洲 Excel 习惯）、制表符（`\t`，TSV）与竖线（`|`）
-   - **智能表头定位与多级 Banner 规避**：支持专业财务/业务 Excel 模型（如 Rolling Forecast），自动识别并跳过首行大标题/合并单元格 Banner，准确定位多列真实表头，防止列名塌陷
-   - **企业级多工作表 XML 解析**：基于栈式元素追踪（Stack-based Extraction），全面支持属性型 XML（如 `<Fact id="..." amount="..."/>`）与深度嵌套自闭合标签，父节点属性与子节点内容完整保留，智能按标签分发生成多工作表
-   - **严格去空与字段消毒**：CSV 与 Excel 解析具备尾部空行自动清洗、重复列名自动去重编号（`_1`, `_2`）以及无名列合法占位（`列N`）
+   - 支持 `.xlsx` / `.xlsm` / `.xlsb` / `.xls` / `.ods`、`.csv` / `.tsv` / `.txt`、`.json` / `.jsonl`、`.xml`、`.xsd`、`.yaml`；可一次选择或拖入多个文件，单个文件上限 200 MB
+   - **统一导入管线**：桌面端由 Rust 读取文件（calamine 读表格单元格，文本做编码识别），浏览器端由 SheetJS 读取；两端得到同一种原始单元格网格，再交给同一个 TypeScript 规整器生成表格，所以同一个文件在两端结果一致（有逐文件对比测试）。解析在 Web Worker 中进行，大文件不卡界面
+   - **表头识别**：跳过报表大标题和空行，按“文字/日期多、数字少”定位真实表头；合并单元格的多级表头拼成 `上半年 / Q1`；纵向合并的单元格向下填充；首行就是数字的表按无表头处理，列名为 `列A`、`列B`；月份表头显示为 `2024-01`
+   - **一表多块**：同一工作表中用空行和小标题隔开的多个表格拆成独立工作表（如 `Summary · Monthly trend`）；表头上方的说明行、表尾的“数据来源”类备注不进入数据，并在导入提示中列出
+   - **单元格值**：数值保留原始精度（15 位有效数字，`0.1+0.2` 显示为 `0.3`，不做货币/千分位格式化）；日期、时间、日期时间分别输出 `2024-01-31`、`13:45:00`、`2024-02-01 09:30:15`；公式取缓存结果，没有缓存结果的公式会提示数量；隐藏工作表照常导入并提示，空白工作表跳过
+   - **文本编码与分隔符**：识别 UTF-8（含 BOM）、UTF-16 LE/BE（含无 BOM）、XML 声明的编码，其余按 GB18030（兼容 GBK/GB2312）读取；CSV 自动识别逗号、分号、Tab、竖线，正确处理引号内的分隔符和换行；行长度不齐时自动补齐
+   - **JSON / YAML**：顶层数组直接成表；`{ "data": { "items": [...] } }` 这类包装结构会找出每个对象数组各成一表，其余标量字段放进 `元信息` 表；嵌套对象展开为 `address.city` 列；支持 JSON Lines 和多文档 YAML；语法错误会给出行列位置
+   - **XML / XSD**：保持源文件中的列顺序；每种重复出现的元素各成一表，只出现一次的元素和根属性进入 `元信息`；去掉命名空间前缀；子元素属性记为 `Total@currency`；XSD 结构化为元素、属性、类型、约束、元信息 5 张表
+   - **重复列名**自动编号为 `金额_2`；空列自动去除；加密工作簿、不支持的类型、空文件、语法错误都会显示具体原因，批量导入时单个失败不影响其他文件
    - **全格网垂直分割线与平滑列宽拖拽**：表头与单元格均具备清晰垂直分割线（浅色 `#e2e8f0` / 深色 `#1e293b`），扩充列宽调节热区至 14px，支持边框丝滑拖拽、双击表头边缘自动贴合内容，状态栏配备“自适应列宽”与“平铺撑满”一键控制
    - **单元格与字体多维缩放系统（Cell & View Zoom）**：状态栏原生集成缩放控制（`70% ~ 160%` 微调），配备 `紧凑 (85%)`、`标准 (100%)`、`宽松 (120%)` 三态密度预设，联动行高、字号与表头无级自适应重绘，偏好设置持久化记忆
    - **全场景高对比度 SVG 筛选按钮与弹窗防重叠**：桌面端与 Web 端均采用独立矢量 SVG 滤镜遮罩与 CSP 穿透优化，杜绝按钮白块与图标丢失；优化筛选弹出面板输入框边距（`padding-left: 26px`），彻底消除背景放大镜图标与搜索文字的重叠
    - **工作台会话无缝持久化（Session Continuity）**：未主动点击关闭标签（`X`）的数据源在应用重启或刷新后 100% 自动恢复（基于 IndexedDB 异步缓存），直接继续操作而无需重新导入
-   - 支持拖拽文件直接导入或文件选择器，支持从系统剪贴板一键粘贴表格
+   - 支持拖拽文件导入（桌面端和浏览器端均可）、文件选择器多选，以及从系统剪贴板粘贴 Excel / 网页表格
    - 高性能 AG Grid 33 数据表格预览，支持虚拟滚动、多列排序、条件筛选、多选、列宽自适应与行列状态统计
 
 2. **多格式双向互转与导出**
@@ -77,6 +80,21 @@ npm run dev
 npm run tauri dev
 ```
 
+### 测试
+
+```bash
+# 导入管线单元测试（含 sample-data/edge-cases 与 D:/tmp/excel 真实文件）
+npm test
+
+# Rust 读取层测试
+cd src-tauri && cargo test --lib
+
+# 生成 Rust 读取结果快照，npm test 会据此比对桌面端与浏览器端结果
+cd src-tauri && cargo test --lib export_payloads -- --ignored
+```
+
+边界样例由 `scripts/generate-edge-fixtures.py`（需要 openpyxl）和 `scripts/generate-edge-fixtures.cjs` 生成到 `sample-data/edge-cases/`。浏览器端到端导入检查：先 `npm run dev`，再在仓库根目录运行 `node tools/verify-import-e2e.cjs`。
+
 ---
 
 ## 🍎 macOS 免开发者账号（零费用）打包与分发指南
@@ -119,14 +137,28 @@ tablesmith/
 │   │   ├── ChartPanel.tsx         # ECharts 图表构建与导出面板
 │   │   ├── DataTable.tsx          # AG Grid 数据表格
 │   │   ├── ExportModal.tsx        # 人体工学直接导出弹窗（记忆上次路径/无二次确认）
-│   │   ├── FileDropZone.tsx       # 文件拖拽上传与解析区
+│   │   ├── FileDropZone.tsx       # 空状态的拖入 / 选择文件区域
+│   │   ├── FileTypeIcon.tsx       # 按文件类型显示图标
 │   │   ├── FormatConverter.tsx    # 格式转换与导出控制面板
 │   │   ├── GlobalToast.tsx        # 全局浮层通知系统（支持一键在文件夹中显示）
 │   │   └── Sidebar.tsx            # macOS 风格侧边栏
+│   ├── hooks/
+│   │   └── useFileImport.ts       # 选择 / 拖入 / 粘贴三种导入入口的统一流程、提示与取消
 │   ├── services/
+│   │   ├── import/                # 导入管线（与 Tauri 无关的纯函数，可单测）
+│   │   │   ├── index.ts           # 入口：按扩展名与文件头分派格式
+│   │   │   ├── types.ts           # 原始单元格网格契约（与 src-tauri/src/import.rs 对应）
+│   │   │   ├── normalize.ts       # 表头识别、合并单元格、一表多块拆分、去空列
+│   │   │   ├── sheetjsReader.ts   # 浏览器端表格读取（SheetJS → 原始网格）
+│   │   │   ├── decode.ts          # 文本编码识别
+│   │   │   ├── delimited.ts       # CSV / TSV / 分隔符文本
+│   │   │   ├── structured.ts      # JSON / JSONL / YAML
+│   │   │   ├── xml.ts / xsd.ts    # XML 与 XSD
+│   │   │   ├── client.ts          # Web Worker 调用与取消
+│   │   │   └── import.worker.ts   # 后台解析线程
 │   │   ├── chartService.ts        # 图表配置生成服务
 │   │   ├── dataProcessService.ts  # 数据清洗、计算衍生列、脱敏、关联与拼接引擎
-│   │   ├── fileService.ts         # 统一文件读写、解析与导出（支持 Tauri/Web 双模式）
+│   │   ├── fileService.ts         # 导入入口（Tauri / 浏览器）与各格式导出
 │   │   ├── pivotTableService.ts   # Excel 级多维交叉数据透视表计算引擎
 │   │   ├── reportService.ts       # A4 图文混排报告导出与系统打印服务
 │   │   └── storageService.ts      # IndexedDB 工作台未关闭数据源自动恢复与缓存服务
@@ -147,13 +179,15 @@ tablesmith/
 ├── src-tauri/                     # Tauri 2.0 Rust 后端
 │   ├── capabilities/              # 细粒度权限控制配置
 │   ├── src/
-│   │   ├── commands.rs            # Rust 高性能文件解析与写入 IPC 指令
+│   │   ├── commands.rs            # IPC 指令：read_file_data / read_file_bytes / 写文件 / 在文件夹中显示
+│   │   ├── import.rs              # 文件读取：calamine 原始网格、编码识别、类型与大小校验
 │   │   ├── lib.rs                 # Tauri 插件与指令注册中心
 │   │   └── main.rs                # 桌面主程序入口
-│   ├── Cargo.toml                 # Rust 依赖声明 (calamine, quick-xml, csv)
+│   ├── Cargo.toml                 # Rust 依赖声明 (calamine, chrono, encoding_rs)
 │   └── tauri.conf.json            # Tauri 应用配置
 │
-├── sample-data/                   # 开箱即用的测试报表数据
+├── sample-data/                   # 示例数据；edge-cases/ 为导入边界样例
+├── scripts/                       # 边界样例生成脚本
 ├── package.json                   # 前端依赖与构建脚本
 └── vite.config.ts                 # Vite 构建配置
 ```

@@ -37,8 +37,9 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData }) => {
 
   const columnDefs = useMemo<ColDef[]>(
     () =>
-      sheetData.headers.map((header) => ({
-        field: header,
+      sheetData.headers.map((header, i) => ({
+        // Keyed by index: AG Grid reads dots in `field` as nested paths ("address.city").
+        field: `c${i}`,
         headerName: header,
         sortable: true,
         filter: true,
@@ -53,8 +54,8 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData }) => {
     () =>
       sheetData.rows.map((row, idx) => {
         const obj: Record<string, string> = { __rowId: `row_${idx}` };
-        sheetData.headers.forEach((h, i) => {
-          obj[h] = row[i] ?? '';
+        sheetData.headers.forEach((_, i) => {
+          obj[`c${i}`] = row[i] ?? '';
         });
         return obj;
       }),

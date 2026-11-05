@@ -1,37 +1,18 @@
 import React, { useCallback, useState } from 'react';
 import {
+  Loader2,
   Plus,
   ClipboardPaste,
   Download,
   X,
-  FileSpreadsheet,
-  FileCode,
-  FileJson,
-  FileText,
 } from 'lucide-react';
 import { useDataStore } from '../store/useDataStore';
 import FileDropZone from '../components/FileDropZone';
 import DataTable from '../components/DataTable';
 import ExportModal from '../components/ExportModal';
-import { openFileDialog, importFromClipboard, exportFile } from '../services/fileService';
-
-function getFileTypeIcon(type: string) {
-  switch (type) {
-    case 'xlsx':
-    case 'xls':
-      return <FileSpreadsheet size={13} className="text-emerald-500 shrink-0" />;
-    case 'json':
-      return <FileJson size={13} className="text-amber-500 shrink-0" />;
-    case 'xml':
-      return <FileCode size={13} className="text-sky-500 shrink-0" />;
-    case 'xsd':
-      return <FileCode size={13} className="text-pink-500 shrink-0" />;
-    case 'csv':
-      return <FileText size={13} className="text-violet-500 shrink-0" />;
-    default:
-      return <FileText size={13} className="text-gray-400 shrink-0" />;
-  }
-}
+import FileTypeIcon from '../components/FileTypeIcon';
+import { exportFile } from '../services/fileService';
+import { useFileImport } from '../hooks/useFileImport';
 
 const DataSourceView: React.FC = () => {
   const {
@@ -40,13 +21,13 @@ const DataSourceView: React.FC = () => {
     activeSheetIndex,
     setActiveFile,
     setActiveSheet,
-    addFile,
     removeFile,
     showToast,
     isInitialized,
   } = useDataStore();
-  const [importing, setImporting] = useState(false);
-  const [errorToast, setErrorToast] = useState<string | null>(null);
+  const importer = useFileImport();
+  const importing = importer.busyLabel !== null;
+  const [isDragging, setIsDragging] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
@@ -82,31 +63,27 @@ const DataSourceView: React.FC = () => {
     }
   };
 
-  const handleImportNew = useCallback(async () => {
-    setImporting(true);
-    try {
-      const file = await openFileDialog();
-      if (file) addFile(file);
-    } catch {
-      // ignore
-    } finally {
-      setImporting(false);
-    }
-  }, [addFile]);
+  const handleImportNew = useCallback(() => void importer.pickFiles(), [importer]);
+  const handleClipboardPaste = useCallback(() => void importer.pasteClipboard(), [importer]);
 
-  const handleClipboardPaste = useCallback(async () => {
-    setImporting(true);
-    setErrorToast(null);
-    try {
-      const file = await importFromClipboard();
-      if (file) addFile(file);
-    } catch (err: unknown) {
-      setErrorToast(err instanceof Error ? err.message : '剪贴板数据读取失败');
-      setTimeout(() => setErrorToast(null), 3000);
-    } finally {
-      setImporting(false);
-    }
-  }, [addFile]);
+  // Browser mode drop target for the whole view; desktop drops arrive via useFileImport.
+  const onDragOver = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('Files')) return;
+    e.preventDefault();
+    setIsDragging(true);
+  }, []);
+  const onDragLeave = useCallback((e: React.DragEvent) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    setIsDragging(false);
+  }, []);
+  const onDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setIsDragging(false);
+      void importer.importDropped(Array.from(e.dataTransfer.files));
+    },
+    [importer],
+  );
 
   if (!isInitialized) {
     return (
@@ -123,14 +100,24 @@ const DataSourceView: React.FC = () => {
     return (
       <div className="flex h-full items-center justify-center p-8 bg-slate-50 dark:bg-[#0b0f19]">
         <div className="w-full max-w-xl">
-          <FileDropZone />
+          <FileDropZone importer={importer} />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex h-full flex-col bg-slate-50 dark:bg-[#0b0f19] text-gray-900 dark:text-gray-100">
+    <div
+      className="relative flex h-full flex-col bg-slate-50 dark:bg-[#0b0f19] text-gray-900 dark:text-gray-100"
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      {isDragging && (
+        <div className="pointer-events-none absolute inset-2 z-20 flex items-center justify-center rounded-xl border-2 border-dashed border-blue-500 bg-blue-50/80 dark:bg-blue-950/60 text-sm font-medium text-blue-600 dark:text-blue-300">
+          松开以导入文件
+        </div>
+      )}
       {/* Toolbar */}
       <div className="flex items-center gap-3 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-5 py-2.5">
         <button
@@ -138,8 +125,8 @@ const DataSourceView: React.FC = () => {
           disabled={importing}
           className="flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 shadow-xs transition hover:bg-gray-100 dark:hover:bg-gray-700 active:scale-[0.97] cursor-pointer"
         >
-          <Plus size={14} />
-          导入新文件
+          {importing ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+          导入文件
         </button>
 
         <button
@@ -151,9 +138,9 @@ const DataSourceView: React.FC = () => {
           从剪贴板粘贴
         </button>
 
-        {errorToast && (
-          <span className="text-xs text-red-500 bg-red-50 dark:bg-red-950/50 dark:text-red-400 px-2.5 py-1 rounded-md">
-            {errorToast}
+        {importer.busyLabel && (
+          <span className="text-xs text-gray-500 dark:text-gray-400" aria-live="polite">
+            {importer.busyLabel}
           </span>
         )}
 
@@ -187,7 +174,7 @@ const DataSourceView: React.FC = () => {
                   : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100/70 dark:hover:bg-gray-800/50'
               }`}
           >
-            {getFileTypeIcon(f.fileType)}
+            <FileTypeIcon type={f.fileType} size={13} />
             <span className="truncate max-w-[160px]" title={f.fileName}>
               {f.fileName}
             </span>
@@ -208,7 +195,9 @@ const DataSourceView: React.FC = () => {
 
         <button
           onClick={handleImportNew}
-          title="打开并新增数据源文件"
+          disabled={importing}
+          aria-label="导入文件"
+          title="导入文件"
           className="flex items-center justify-center p-1 text-gray-400 hover:text-blue-600 hover:bg-gray-200/60 dark:hover:bg-gray-800 rounded transition-colors ml-1 cursor-pointer"
         >
           <Plus size={14} />

@@ -10,7 +10,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "表匠 Tablesmith",
+        "title": "Tablesmith",
         "width": 1280,
         "height": 800,
         "resizable": true,

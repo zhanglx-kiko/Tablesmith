@@ -1,0 +1,9 @@
+---
+name: alpha
+limits:
+  cpu: 2
+  mem: 4Gi
+---
+name: beta
+limits:
+  cpu: 4

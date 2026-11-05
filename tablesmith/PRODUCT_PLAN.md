@@ -51,7 +51,7 @@ flowchart TD
     end
 
     subgraph Core["核心计算与服务引擎"]
-        Parser["多格式解析引擎 (SheetJS / XML / YAML / CSV)"]
+        Parser["统一导入管线 (Web Worker：原始网格 → 表头识别 → 表格)"]
         Process["清洗 / 脱敏 / 算术派生 / 多表JOIN"]
         Pivot["Excel级多维数据透视表引擎"]
         Visual["ECharts图表构建与高反差光晕渲染"]
@@ -59,7 +59,7 @@ flowchart TD
     end
 
     subgraph Native["桌面原生层 (Tauri 2.0 / Rust)"]
-        RustIPC["Tauri IPC 通信接口"]
+        RustIPC["Tauri IPC：calamine 读取 / 编码识别 / 校验"]
         NativeFS["受限作用域本地文件系统 I/O"]
         WinSys["无CMD控制台原生窗口管理"]
     end
@@ -74,7 +74,7 @@ flowchart TD
 | 功能模块 | 核心能力规划 | 实际落地代码文件 | 落地状态 |
 | :--- | :--- | :--- | :--- |
 | **桌面架构与窗口** | Tauri 2.0 跨平台底层架构，无 CMD 黑框控制台启动（`#![windows_subsystem = "windows"]`），窗口尺寸与状态持久化 | [`src-tauri/src/main.rs`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src-tauri/src/main.rs)<br>[`tauri.conf.json`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src-tauri/tauri.conf.json) | ✅ 100% 落地 |
-| **模块 1：数据源管理** | Excel（多Sheet/日期格式化）、CSV（多分隔符/多编码）、**XSD（XML Schema 模式定义 5 大全景工作表）**、XML（多层级属性/子标签栈式提取）、JSON、YAML 拖拽导入；从剪贴板一键粘贴表格；文件只读保护；**未关闭数据源无缝持久化与恢复（IndexedDB）**；显式标签页关闭（`X`）与历史记录一键重开 | [`fileService.ts`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src/services/fileService.ts)<br>[`storageService.ts`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src/services/storageService.ts)<br>[`FileDropZone.tsx`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src/components/FileDropZone.tsx)<br>[`DataSourceView.tsx`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src/views/DataSourceView.tsx) | ✅ 100% 落地 |
+| **模块 1：数据源管理** | Excel（xlsx/xlsm/xlsb/xls/ods，多级表头/合并单元格/一表多块）、CSV/TSV（多分隔符/多编码）、**XSD（5 大全景工作表）**、XML、JSON/JSONL（嵌套展开）、YAML 多文件拖拽或选择导入，桌面端与浏览器端结果一致；导入失败与跳过内容逐条提示；从剪贴板一键粘贴表格；文件只读保护；**未关闭数据源无缝持久化与恢复（IndexedDB）**；显式标签页关闭（`X`）与历史记录一键重开 | [`fileService.ts`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src/services/fileService.ts)<br>[`storageService.ts`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src/services/storageService.ts)<br>[`services/import/`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src/services/import/index.ts)<br>[`import.rs`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src-tauri/src/import.rs)<br>[`useFileImport.ts`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src/hooks/useFileImport.ts)<br>[`FileDropZone.tsx`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src/components/FileDropZone.tsx)<br>[`DataSourceView.tsx`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src/views/DataSourceView.tsx) | ✅ 100% 落地 |
 | **模块 1：历史记录持久化** | 本地 localStorage 存储最近打开文件元数据，IndexedDB 深度缓存文件内容，支持历史记录快捷点击重开与一键清空 | [`useDataStore.ts`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src/store/useDataStore.ts)<br>[`storageService.ts`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src/services/storageService.ts)<br>[`Sidebar.tsx`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src/components/Sidebar.tsx) | ✅ 100% 落地 |
 | **模块 1：大数据网格预览** | AG Grid 33 高性能网格，支持千万行级虚拟滚动、列排序、多列筛选、**全格网垂直分割线**、**单元格与字体多维缩放（70%~160% / 紧凑/标准/宽松三态预设）**、**全场景高对比度矢量 SVG 筛选按钮**、**筛选弹窗输入框文本防遮挡**、列宽自适应/平铺撑满、动态拖拽调整列宽、行列统计状态栏 | [`DataTable.tsx`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src/components/DataTable.tsx)<br>[`index.css`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src/index.css) | ✅ 100% 落地 |
 | **模块 2：双向格式转换** | 6 大格式双向无损转换（Excel/CSV/XML/JSON/YAML/SQL）；自定义 CSV 分隔符；SQL 表名与建表语句生成 | [`FormatConverter.tsx`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src/components/FormatConverter.tsx)<br>[`ConvertView.tsx`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src/views/ConvertView.tsx) | ✅ 100% 落地 |
@@ -104,11 +104,18 @@ flowchart TD
     3. `SimpleTypes (枚举与类型)`：自定义简单类型名称、基础数据类型（`base`）、限制性枚举候选值列表；
     4. `Constraints (主外键约束)`：主键（`key`）、唯一键（`unique`）、外键参照（`keyref`）、目标 XPath 选择器与字段映射；
     5. `SchemaSummary (元信息)`：命名空间（`targetNamespace`）、元素限定规范（`elementFormDefault`）等元数据全览。
-  * **Excel (`.xlsx`, `.xls`)**：完整支持多工作表识别；集成日期格式化解析（将内部 Excel 浮点序列数准确转为 `YYYY-MM-DD` / `YYYY-MM-DD HH:MM:SS`）与 Excel 错误代码优雅展示（`#DIV/0!`, `#N/A` 等）；内置**智能表头探测算法（Smart Header Row Detection）**，自动分析前 8 行的填充度、文本占比与唯一值，智能跳过财务大模型/合并单元格大标题 Banner，精准锚定多列真实表头；表头自动消毒防重（`Header_1`, `Header_2`）并为无名列生成保底列名；严格保留前导零（如工号 `00892`、手机号保持字符串不转数字）。
-  * **CSV (`.csv`)**：支持 UTF-8、带有 BOM 的 UTF-8（自动剥除防乱码）以及 GBK/GB18030（中文 Windows Excel 默认导出格式）二进制嗅探与无损解码；具备动态分隔符识别（逗号 `,`、分号 `;`、制表符 `\t`、竖线 `|`），依据方差与行连续性评分自适应适配；具备贪婪空行修剪（`skipEmptyLines: greedy`），消除末尾空白行造成的维度错位。
-  * **JSON (`.json`)**：支持标准对象数组结构 `[{...}, {...}]`，自动解析一级标量字段。
-  * **XML (`.xml`)**：企业级深度解析，基于栈式结构跟踪（Stack-based Hierarchy），支持属性存储型 XML（如 `<Fact id="..." periodRef="..." amount="..."/>`）、深度嵌套子标签与自闭合标签（`Event::Empty`），父节点属性与子节点内容完整保留，按标签智能聚合生成多工作表，无损提取业务指标。
-  * **YAML (`.yaml`, `.yml`)**：支持键值列表结构自动识别。
+  * **Excel (`.xlsx`, `.xlsm`, `.xlsb`, `.xls`, `.ods`)**：桌面端由 Rust calamine 读取 xlsx/xlsm/xls，读不了的文件（以及 xlsb、ods）改用 SheetJS；两种读取方式都输出同一种原始单元格网格（文本 / 数值 / 布尔 / 日期 / 错误值 + 合并区域 + 隐藏状态），再由同一个规整器生成表格。规整规则：
+    1. 跳过报表大标题、空行；在前 12 个非空行里找第一行“填充度不低于最宽行 60%、只含文字 / 日期 / 年份且至少一个文字”的行作为表头；在表头之前先遇到满行数字时按无表头处理（列名 `列A`、`列B`…）；
+    2. 表头下一行也是文字行、且有合并单元格证据时视为多级表头，拼接为 `上半年 / Q1`；纵向合并的单元格向下填充（如地区列）；
+    3. 同一工作表中“空行 + 小标题 + 新表头”或“两个以上空行 + 新表头 + 数据”处拆成独立工作表，命名为 `原表名 · 小标题`；表头上方的说明行、表尾横跨半宽以上的单格备注不进入数据，并在导入提示中列出；
+    4. 数值保留原值（15 位有效数字，不套用货币 / 千分位显示格式）；日期类单元格输出 `YYYY-MM-DD`、`HH:MM:SS` 或 `YYYY-MM-DD HH:MM:SS`，月初日期作表头时显示 `YYYY-MM`；错误值显示为 `#DIV/0!` 等；
+    5. 公式读取缓存结果；没有缓存结果的公式统计个数并提示“在 Excel 中打开保存一次后重新导入”；隐藏工作表导入并提示，空白工作表跳过并提示；
+    6. 重复列名编号为 `金额_2`，全空列去除，字符串原样保留（前导零、前导空格表示的层级缩进不丢失）；加密工作簿给出“取消密码后再导入”的提示。
+  * **CSV / TSV / TXT**：编码按 BOM → UTF-16 无 BOM 嗅探 → 严格 UTF-8 → GB18030 顺序识别，非 UTF-8 时提示实际编码；分隔符在逗号、Tab、分号、竖线中自动识别，引号内的分隔符与换行保持在单元格内，引号未闭合时提示行号；行长度不齐时补齐；表头识别规则与 Excel 相同。
+  * **JSON / JSONL (`.json`, `.jsonl`, `.ndjson`)**：顶层数组直接成表（标量数组成为单列 `值`）；对象中找出深度 4 以内的每个对象数组各成一表，其余标量字段放入 `元信息` 表；嵌套对象展开为点号列名（`address.city`，深度 4 以内），标量数组以逗号连接，更深的结构保留为 JSON 文本；整份不是合法 JSON 但每行是 JSON 时按 JSON Lines 读取；语法错误提示行列位置。
+  * **XML (`.xml`)**：先校验语法并提示错误行列；按元素出现顺序保留列顺序；重复出现的元素按标签各成一表（属性、叶子子元素、子元素属性 `Total@currency` 成为列，同名叶子以逗号合并）；嵌套记录携带父记录主键列（如 `Order.id`）；只出现一次的元素与根属性放入 `元信息` 表；去除命名空间前缀；按 XML 声明的编码解码；Excel 另存的 SpreadsheetML / HTML 表格按表格读取。
+  * **YAML (`.yaml`, `.yml`)**：规则同 JSON；多文档 YAML（`---` 分隔）每个文档作为一行。
+* **导入入口与反馈**：文件选择器多选、拖入（桌面端通过 Tauri 原生拖放事件按路径读取，浏览器端通过 HTML 拖放）、剪贴板粘贴三种入口共用一个流程；解析在 Web Worker 中进行，切换页面时取消未完成的解析；单个文件失败不影响同批其他文件，失败原因以不自动消失的错误提示展示，有跳过内容或编码转换时以提示列出；单个文件上限 200 MB（Rust 与前端同时校验）。
 * **剪贴板一键粘贴**：用户可直接从网页表格、WPS 或外部软件复制文本，点击主界面“从剪贴板直接粘贴表格”即可秒级转为结构化工作表。
 * **输入保护**：所有读取操作均为只读；任何处理结果均以“另存为新文件”或“创建新工作表”方式输出，绝不覆盖篡改原始文件。
 

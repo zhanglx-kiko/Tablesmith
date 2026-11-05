@@ -1,0 +1,11 @@
+{
+  "name": "demo",
+  "version": 3,
+  "flags": {
+    "beta": true
+  },
+  "ports": [
+    80,
+    443
+  ]
+}
