@@ -2,10 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useDataStore } from '../store/useDataStore';
 import {
   describeImportError,
-  importBrowserFiles,
   importFromClipboard,
   importPaths,
-  isTauriEnv,
+  onFileDrop,
   pickAndImportFiles,
   type ImportOutcome,
 } from '../services/fileService';
@@ -13,8 +12,9 @@ import {
 export interface FileImportApi {
   /** Name of the file being parsed, or a placeholder while the picker is open. */
   busyLabel: string | null;
+  /** True while files are dragged over the window. */
+  isDragging: boolean;
   pickFiles: () => Promise<void>;
-  importDropped: (files: File[]) => Promise<void>;
   pasteClipboard: () => Promise<void>;
 }
 
@@ -23,7 +23,7 @@ function isAbort(err: unknown): boolean {
 }
 
 /**
- * One import flow for every entry point (picker, drag and drop, clipboard): parses in a
+ * One import flow for every entry point (picker, window drop, clipboard): parses in a
  * worker, adds each successful file to the store, and reports failures and notices
  * through toasts. Pending parses are cancelled when the owning component unmounts.
  */
@@ -31,13 +31,13 @@ export function useFileImport(): FileImportApi {
   const addFile = useDataStore((s) => s.addFile);
   const showToast = useDataStore((s) => s.showToast);
   const [busyLabel, setBusyLabel] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const controllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => () => controllerRef.current?.abort(), []);
 
   const report = useCallback(
     (outcomes: ImportOutcome[]) => {
-      const failed = outcomes.filter((o) => !o.ok);
       for (const o of outcomes) {
         if (!o.ok) continue;
         addFile(o.result.file);
@@ -55,7 +55,7 @@ export function useFileImport(): FileImportApi {
           showToast({ type: 'success', title: `已导入 ${o.fileName}`, message: summary, duration: 3000 });
         }
       }
-      for (const o of failed) {
+      for (const o of outcomes) {
         if (o.ok) continue;
         showToast({ type: 'error', title: `无法导入 ${o.fileName}`, message: o.message, duration: 0 });
       }
@@ -87,15 +87,6 @@ export function useFileImport(): FileImportApi {
 
   const pickFiles = useCallback(() => runImport('正在读取文件…', (signal) => pickAndImportFiles(signal)), [runImport]);
 
-  const importDropped = useCallback(
-    (files: File[]) => {
-      if (files.length === 0) return Promise.resolve();
-      const label = files.length === 1 ? `正在解析 ${files[0].name}…` : `正在解析 ${files.length} 个文件…`;
-      return runImport(label, (signal) => importBrowserFiles(files, signal));
-    },
-    [runImport],
-  );
-
   const pasteClipboard = useCallback(
     () =>
       runImport('正在读取剪贴板…', async () => {
@@ -109,30 +100,21 @@ export function useFileImport(): FileImportApi {
     [runImport],
   );
 
-  // Desktop: Tauri intercepts native drops (dragDropEnabled), so HTML drop events never
-  // fire there. Listen to the webview drag-drop event and import by path instead.
-  useEffect(() => {
-    if (!isTauriEnv()) return;
-    let disposed = false;
-    let unlisten: (() => void) | null = null;
-    void import('@tauri-apps/api/webview').then(({ getCurrentWebview }) =>
-      getCurrentWebview()
-        .onDragDropEvent((event) => {
-          if (event.payload.type !== 'drop' || event.payload.paths.length === 0) return;
-          const paths = event.payload.paths;
-          const label = paths.length === 1 ? '正在解析拖入的文件…' : `正在解析 ${paths.length} 个文件…`;
-          void runImport(label, (signal) => importPaths(paths, signal));
-        })
-        .then((fn) => {
-          if (disposed) fn();
-          else unlisten = fn;
-        }),
-    );
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, [runImport]);
+  useEffect(
+    () =>
+      onFileDrop((event) => {
+        if (event.type !== 'drop') {
+          setIsDragging(event.type === 'over');
+          return;
+        }
+        setIsDragging(false);
+        const { paths } = event;
+        if (paths.length === 0) return;
+        const label = paths.length === 1 ? '正在解析拖入的文件…' : `正在解析 ${paths.length} 个文件…`;
+        void runImport(label, (signal) => importPaths(paths, signal));
+      }),
+    [runImport],
+  );
 
-  return { busyLabel, pickFiles, importDropped, pasteClipboard };
+  return { busyLabel, isDragging, pickFiles, pasteClipboard };
 }

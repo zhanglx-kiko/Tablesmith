@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useCallback } from 'react';
 import { UploadCloud, Loader2, ClipboardPaste } from 'lucide-react';
 import { SUPPORTED_FORMATS_LABEL } from '../services/fileService';
 import type { FileImportApi } from '../hooks/useFileImport';
@@ -8,29 +8,8 @@ interface FileDropZoneProps {
 }
 
 const FileDropZone: React.FC<FileDropZoneProps> = ({ importer }) => {
-  const { busyLabel, pickFiles, importDropped, pasteClipboard } = importer;
-  const [isDragging, setIsDragging] = useState(false);
+  const { busyLabel, isDragging, pickFiles, pasteClipboard } = importer;
   const busy = busyLabel !== null;
-
-  const onDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  }, []);
-
-  const onDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-  }, []);
-
-  // Browser mode only; in the desktop app Tauri delivers drops through useFileImport.
-  const onDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setIsDragging(false);
-      void importDropped(Array.from(e.dataTransfer.files));
-    },
-    [importDropped],
-  );
 
   const handleClipboardPaste = useCallback(
     (e: React.MouseEvent) => {
@@ -52,9 +31,6 @@ const FileDropZone: React.FC<FileDropZoneProps> = ({ importer }) => {
           void pickFiles();
         }
       }}
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
       className={`flex flex-col items-center justify-center gap-4 rounded-2xl border-2 border-dashed p-14 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-blue-500
         ${busy ? 'cursor-progress' : 'cursor-pointer'}
         ${

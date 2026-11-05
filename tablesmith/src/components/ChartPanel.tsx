@@ -5,9 +5,7 @@ import type { SheetData, ChartConfig, ChartType, PaletteTheme } from '../types';
 import { buildChartOption } from '../services/chartService';
 import { useDataStore, getIsDark } from '../store/useDataStore';
 import ExportModal from './ExportModal';
-import { isTauriEnv, getLastExportDir, setLastExportDir, getUniqueFilePath } from '../services/fileService';
-import { save } from '@tauri-apps/plugin-dialog';
-import { invoke } from '@tauri-apps/api/core';
+import { saveExport } from '../services/fileService';
 
 interface ChartPanelProps {
   sheetData: SheetData;
@@ -95,62 +93,21 @@ const ChartPanel: React.FC<ChartPanelProps> = ({ sheetData, config }) => {
         pixelRatio: 2,
         backgroundColor: isDark ? '#111827' : '#ffffff',
       });
-      const fullFileName = `${customFileName}.png`;
-
-      if (isTauriEnv()) {
-        let savePath = '';
-        const resolvedDir = (targetDirectory && targetDirectory.trim()) || getLastExportDir();
-
-        if (resolvedDir) {
-          savePath = `${resolvedDir.replace(/[\\/]+$/, '')}\\${fullFileName}`;
-        } else {
-          const picked = await save({
-            defaultPath: fullFileName,
-            filters: [{ name: 'PNG Image', extensions: ['png'] }],
-          });
-          if (!picked) {
-            setIsExporting(false);
-            return;
-          }
-          savePath = picked;
-        }
-
-        // Safeguard: auto-number with (1), (2) if the file already exists in destination
-        savePath = await getUniqueFilePath(savePath);
-
-        const base64Data = url.replace(/^data:image\/png;base64,/, '');
-        const binaryString = atob(base64Data);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-        await invoke('save_binary_file', {
-          path: savePath,
-          data: Array.from(bytes),
-        });
-
-        const lastSlash = Math.max(savePath.lastIndexOf('\\'), savePath.lastIndexOf('/'));
-        if (lastSlash > 0) {
-          setLastExportDir(savePath.substring(0, lastSlash));
-        }
-
-        showToast({
-          type: 'success',
-          title: '图表导出成功',
-          message: `图片已保存至: ${savePath}`,
-          path: savePath,
-        });
-      } else {
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = fullFileName;
-        a.click();
-        showToast({
-          type: 'success',
-          title: '图表已开始下载',
-          message: `正在下载「${fullFileName}」`,
-        });
-      }
+      const binary = atob(url.replace(/^data:image\/png;base64,/, ''));
+      const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
+      const result = await saveExport(
+        `${customFileName}.png`,
+        bytes,
+        { name: 'PNG Image', extensions: ['png'] },
+        targetDirectory,
+      );
+      if (!result.saved) return;
+      showToast({
+        type: 'success',
+        title: '图表导出成功',
+        message: `图片已保存至: ${result.path}`,
+        path: result.path,
+      });
       setIsExportModalOpen(false);
     } catch (err: unknown) {
       showToast({

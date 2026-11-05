@@ -1,17 +1,15 @@
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
-import { save } from '@tauri-apps/plugin-dialog';
-import { invoke } from '@tauri-apps/api/core';
-import { isTauriEnv, getLastExportDir, setLastExportDir, getUniqueFilePath } from './fileService';
+import { saveExport, type SaveResult } from './fileService';
 
 /**
- * Capture an HTML container and download it as an A4 PDF document.
+ * Capture an HTML container and save it as an A4 PDF document.
  */
 export async function exportReportToPdf(
   element: HTMLElement,
   fileName: string = 'Tablesmith-Report',
   targetDirectory?: string,
-): Promise<{ saved: boolean; fileName: string; path?: string }> {
+): Promise<SaveResult> {
   const canvas = await html2canvas(element, {
     scale: 2, // High resolution (retina)
     useCORS: true,
@@ -43,47 +41,12 @@ export async function exportReportToPdf(
     }
   }
 
-  const fullFileName = `${fileName}.pdf`;
-
-  if (isTauriEnv()) {
-    let savePath = '';
-    const resolvedDir = (targetDirectory && targetDirectory.trim()) || getLastExportDir();
-
-    if (resolvedDir) {
-      savePath = `${resolvedDir.replace(/[\\/]+$/, '')}\\${fullFileName}`;
-    } else {
-      const picked = await save({
-        defaultPath: fullFileName,
-        filters: [{ name: 'PDF Document', extensions: ['pdf'] }],
-      });
-      if (!picked) return { saved: false, fileName: fullFileName };
-      savePath = picked;
-    }
-
-    // Safeguard: auto-number with (1), (2) if the file already exists in destination
-    savePath = await getUniqueFilePath(savePath);
-
-    const arrayBuffer = pdf.output('arraybuffer');
-    await invoke('save_binary_file', {
-      path: savePath,
-      data: Array.from(new Uint8Array(arrayBuffer)),
-    });
-
-    const lastSlash = Math.max(savePath.lastIndexOf('\\'), savePath.lastIndexOf('/'));
-    if (lastSlash > 0) {
-      setLastExportDir(savePath.substring(0, lastSlash));
-    }
-
-    const actualFileName = savePath.substring(lastSlash + 1) || fullFileName;
-    return { saved: true, fileName: actualFileName, path: savePath };
-  }
-
-  pdf.save(fullFileName);
-  return { saved: true, fileName: fullFileName };
+  const bytes = new Uint8Array(pdf.output('arraybuffer'));
+  return saveExport(`${fileName}.pdf`, bytes, { name: 'PDF Document', extensions: ['pdf'] }, targetDirectory);
 }
 
 /**
- * Trigger native browser print dialog (which allows saving as vector PDF).
+ * Open the system print dialog (which can also save as a vector PDF).
  */
 export function printReport(): void {
   window.print();

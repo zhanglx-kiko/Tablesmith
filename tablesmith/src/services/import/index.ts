@@ -10,7 +10,7 @@ import { xsdToSheets } from './xsd';
 
 export { ImportError } from './types';
 
-/** Files above this size are rejected before parsing; mirrors MAX_IMPORT_BYTES in commands.rs. */
+/** Files above this size are rejected before parsing; mirrors MAX_IMPORT_BYTES in import.rs. */
 export const MAX_IMPORT_BYTES = 200 * 1024 * 1024;
 
 export const SPREADSHEET_EXTENSIONS = ['xlsx', 'xlsm', 'xlsb', 'xls', 'ods'] as const;
@@ -116,7 +116,7 @@ export function parseText(fileName: string, text: string, encoding: string): Imp
   }
 }
 
-/** Browser / worker path: parse a file's raw bytes. */
+/** Parse a file's raw bytes with SheetJS / text decoding (used when calamine returns `unparsed`, and by tests). */
 export function parseFileBytes(fileName: string, bytes: Uint8Array): ImportResult {
   const ext = assertSupported(fileName);
   if (bytes.byteLength > MAX_IMPORT_BYTES) {
@@ -135,7 +135,7 @@ export function parseFileBytes(fileName: string, bytes: Uint8Array): ImportResul
   return parseText(fileName, decoded.text, decoded.encoding);
 }
 
-/** Desktop path: Rust already read the file (calamine for workbooks, encoding detection for text). */
+/** Rust already read the file (calamine for workbooks, encoding detection for text). */
 export function parseDesktopPayload(fileName: string, payload: DesktopPayload): ImportResult {
   const ext = assertSupported(fileName);
   if (payload.kind === 'workbook') return fromWorkbook(fileName, ext, payload.workbook);

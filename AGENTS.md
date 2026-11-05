@@ -150,9 +150,9 @@
    - `src-tauri/capabilities/` 细粒度声明各窗口（Window）的权限范围。
    - **严禁使用 `fs:allow-all` 等危险通配权限**：文件系统操作必须严格限定在安全作用域内（如 `$APPDATA/*`、`$DOCUMENT/*` 或由用户通过系统原生文件对话框主动选取的路径）。
    - **严禁开放任意 Shell 执行命令（`shell:execute`）**，避免潜在的远程代码执行（RCE）风险。
-3. **Web 与 Tauri 双运行模式（Dual Runtime Mode）**：
-   - 应用必须保持“双轨运行能力”：纯 Web（`npm run dev`）与桌面端（`npm run tauri dev`）均需稳定可用。
-   - 调用任何 Tauri 专属 API 前，必须做运行环境判断（如嗅探 `window.__TAURI_INTERNALS__`）；桌面端调用 Rust IPC，Web 端自动无缝降级为浏览器原生实现（如使用 SheetJS、PapaParse 纯前端解析/导出），**严禁在浏览器端引发任何未定义异常**。
+3. **只做桌面端（Desktop Only）**：
+   - 产品只有 Tauri 桌面应用，不维护浏览器版本。前端直接调用 Tauri API 与 Rust IPC，**不写运行环境判断（如嗅探 `window.__TAURI_INTERNALS__`）、不写浏览器下载 / `<input type=file>` / HTML 拖放等降级分支**。
+   - 开发用 `npm run tauri dev`；`npm run dev` 只为它提供前端页面。当前先在 Windows 上完成开发与验证，macOS 由 GitHub Actions 打包后再验证。
 
 ---
 
@@ -217,7 +217,7 @@
 遵循 **阿里 Ant Design / 字节跳动 Semi Design / 腾讯 TDesign** 工业级前端研发与视觉回归测试体系，建立严格的前端交付防错与自检机制（详细标准见 [`BROWSER_ACCEPTANCE_SPEC.md`](file:///d:/code/zhanglx-index/disktopApp/BROWSER_ACCEPTANCE_SPEC.md)）：
 
 1. **零假设与前置自检原则（Shift-Left & Zero-Assumption）**：
-   - **严禁凭感觉交付，严禁把半成品丢给用户审查**。涉及界面布局、配色、组件间距、文本排版或图表渲染改动后，Agent 必须主动通过自动化浏览器（Puppeteer）生成实际渲染截图并亲自执行像素级自检。
+   - **严禁凭感觉交付，严禁把半成品丢给用户审查**。涉及界面布局、配色、组件间距、文本排版或图表渲染改动后，Agent 必须先编译 release exe（`npx tauri build --no-bundle`），再用 Puppeteer 通过 WebView2 调试端口连接真实应用生成截图并亲自执行像素级自检。
    - 必须通过全局命令 `tablesmith-verify`（已持久化写入全局 PATH）对以下五大 P0 级场景全量跑通走查：
      1. 数据源表格视图（暗黑模式 + AG Grid 纯黑背景 + 奇偶行高对比度斑马纹）；
      2. 图表可视化视图（暗黑模式 + 多序列柱状图 + 3px 高反差光晕数值标签）；
@@ -231,7 +231,7 @@
 4. **图表可读性强制规范**：
    - 数值标签文字必须具备 WCAG AA 级对比度（$\ge 4.5:1$），统一启用 3px 动态遮罩反差描边（暗黑模式白字黑边，浅色模式黑字白边），杜绝标签被柱体或背景吞没。
 5. **自动化工具链持久化与 PATH 约束**：
-   - 自动化无头浏览器（Puppeteer）与测试脚本统一配置在全局环境（`C:\Users\16147\AppData\Roaming\npm` 及用户环境变量 `NODE_PATH`）。任何开发者或终端可直接在系统任意目录运行 `tablesmith-verify` 进行秒级验收。
+   - Puppeteer 与测试脚本统一配置在全局环境（`C:\Users\16147\AppData\Roaming\npm` 及用户环境变量 `NODE_PATH`）。任何终端可直接运行 `tablesmith-verify`（P0 截图）或 `node tools/verify-import-e2e.cjs`（导入端到端）；两者都通过 [`tools/lib/desktop-app.cjs`](file:///d:/code/zhanglx-index/disktopApp/tools/lib/desktop-app.cjs) 启动 exe，使用临时 WebView2 配置目录，结束后关闭进程。
 
 ---
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Download, X, FolderOpen, Loader2, FileSpreadsheet, Image as ImageIcon, FileText } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
-import { isTauriEnv, resolveDefaultExportDir, setLastExportDir } from '../services/fileService';
+import { resolveDefaultExportDir, setLastExportDir } from '../services/fileService';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -67,7 +67,6 @@ const ExportModal: React.FC<ExportModalProps> = ({
   if (!isOpen) return null;
 
   const handleSelectFolder = async () => {
-    if (!isTauriEnv()) return;
     try {
       const selected = await open({
         directory: true,
@@ -156,30 +155,24 @@ const ExportModal: React.FC<ExportModalProps> = ({
             <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
               保存目录
             </label>
-            {isTauriEnv() ? (
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  readOnly
-                  value={targetDirectory || (isResolvingDir ? '正在读取保存目录…' : '请选择目标目录')}
-                  placeholder="目标目录"
-                  title={targetDirectory}
-                  className="flex-1 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/60 px-3.5 py-2 text-xs font-mono text-gray-700 dark:text-gray-200 outline-none select-all"
-                />
-                <button
-                  type="button"
-                  onClick={handleSelectFolder}
-                  className="flex items-center gap-1.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-200 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 transition shrink-0 active:scale-95 shadow-xs"
-                >
-                  <FolderOpen size={14} className="text-amber-500" />
-                  浏览
-                </button>
-              </div>
-            ) : (
-              <p className="rounded-xl border border-gray-200/80 dark:border-gray-800 bg-gray-50/70 dark:bg-gray-800/40 px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
-                保存至浏览器默认下载目录
-              </p>
-            )}
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                readOnly
+                value={targetDirectory || (isResolvingDir ? '正在读取保存目录…' : '请选择目标目录')}
+                placeholder="目标目录"
+                title={targetDirectory}
+                className="flex-1 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/60 px-3.5 py-2 text-xs font-mono text-gray-700 dark:text-gray-200 outline-none select-all"
+              />
+              <button
+                type="button"
+                onClick={handleSelectFolder}
+                className="flex items-center gap-1.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-200 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 transition shrink-0 active:scale-95 shadow-xs"
+              >
+                <FolderOpen size={14} className="text-amber-500" />
+                浏览
+              </button>
+            </div>
           </div>
 
           {/* Footer Actions */}

@@ -2,14 +2,13 @@ import React from 'react';
 import { CheckCircle2, AlertCircle, Info, X, FolderOpen } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useDataStore } from '../store/useDataStore';
-import { isTauriEnv } from '../services/fileService';
 
 const GlobalToast: React.FC = () => {
   const toasts = useDataStore((s) => s.toasts);
   const dismissToast = useDataStore((s) => s.dismissToast);
 
   const handleOpenFolder = async (path: string) => {
-    if (!isTauriEnv() || !path) return;
+    if (!path) return;
     try {
       await invoke('show_in_folder', { path });
     } catch (err) {
@@ -28,6 +27,8 @@ const GlobalToast: React.FC = () => {
         return (
           <div
             key={toast.id}
+            data-testid="toast"
+            data-type={toast.type}
             className={`pointer-events-auto flex items-start gap-3 rounded-xl border p-3.5 shadow-lg backdrop-blur-md transition-all duration-200 animate-in fade-in slide-in-from-top-2
               ${
                 isSuccess
@@ -50,7 +51,7 @@ const GlobalToast: React.FC = () => {
                   {toast.message}
                 </p>
               )}
-              {toast.path && isTauriEnv() && (
+              {toast.path && (
                 <div className="mt-2 flex items-center gap-2">
                   <button
                     type="button"

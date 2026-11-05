@@ -19,15 +19,16 @@
 2. **零成本构建与极速分发（Zero Cost & Frictionless Distribution）**：
    - **完全免除每年 \$99 的 Apple Developer 账号费用**，macOS 端采用高质量免费 Ad-hoc 签名与 DMG 打包。
    - 深度集成 GitHub Actions 云端多平台 CI/CD 自动化构建流水线，一键自动编译发布 macOS `.dmg` 与 Windows 免安装便携版 / NSIS `.exe` 安装包。
-3. **双运行架构无缝切换（Dual-Runtime Architecture）**：
-   - 兼具浏览器 Web 端（`npm run dev` 纯前端无依赖运行）与 Tauri 2.0 原生桌面端（`cargo build` 原生 IPC 性能加持）的双重可用性，在无 Tauri 环境下自动优雅降级。
+3. **只做桌面端（Desktop Only）**：
+   - 产品形态只有 Tauri 2.0 桌面应用，不维护浏览器版本；前端代码直接调用 Tauri API，不做运行环境判断与浏览器降级。
+   - 先在 Windows 上完成开发与验证，macOS 版本由 GitHub Actions 打包后再在 Mac 上验证。
 4. **macOS HIG 极简美学与 100% 全局暗黑模式（Aesthetics & Accessibility）**：
    - 采用精致高质感的 macOS 苹果设计语言与 Slate/Zinc 专业中性色调。
    - 具备完整、彻底的 **浅色（Light）/ 深色（Dark）/ 跟随系统（System）** 三态持久化切换，严禁深色模式下存在局部白色刺眼色块。
    - 针对狭窄容器（如 `< 180px` 侧边栏底栏）采用极简 Icon 胶囊分段控制器（`[ ☀️ | 🌙 | 💻 ]`），杜绝中文单字竖向折行。
 5. **大厂级前端视觉与自动化浏览器验收标准（Shift-Left & Zero-Assumption）**：
    - 严格遵循阿里 Ant Design、字节跳动 Semi Design 与腾讯 TDesign 的工业级工程标准。
-   - 交付必须经过自动化无头浏览器（Headless Chrome / Puppeteer）全量走查与像素级自检，杜绝把半成品或审美缺陷留给用户。
+   - 交付必须在真实 release exe 上完成自动化走查（Puppeteer 通过 WebView2 调试端口连接）与像素级自检，杜绝把半成品或审美缺陷留给用户。
 
 ---
 
@@ -88,7 +89,7 @@ flowchart TD
 | **模块 5：A4 图文混排报告导出** | A4 打印级实时预览；KPI 核心指标卡；动态嵌入 ECharts 可视化图表；自动生成数据摘要表格；结论分析文本；一键导出高清 PDF 与系统打印 | [`reportService.ts`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src/services/reportService.ts)<br>[`ReportView.tsx`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src/views/ReportView.tsx) | ✅ 100% 落地 |
 | **外观与体验：100% 纯粹暗黑模式** | 浅色/深色/跟随系统 3态持久化切换；AG Grid v33 CSS 变量穿透与深黑主题重构；侧边栏极简 Icon 胶囊控制器 | [`Sidebar.tsx`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src/components/Sidebar.tsx)<br>[`index.css`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src/index.css)<br>[`useDataStore.ts`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src/store/useDataStore.ts) | ✅ 100% 落地 |
 | **交互体验：人体工学极速导出与历史路径记忆** | 首次导出自动感知定位真实系统下载目录；后续导出 100% 记忆上一次自定义导出目录；点击「直接保存导出」直接落盘，彻底消除系统二次「另存为」弹窗冗余；全局浮层通知支持一键在文件夹中显示定位 | [`ExportModal.tsx`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src/components/ExportModal.tsx)<br>[`fileService.ts`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src/services/fileService.ts)<br>[`GlobalToast.tsx`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src/components/GlobalToast.tsx) | ✅ 100% 落地 |
-| **质量保障：大厂级浏览器视觉自动化走查** | 基于 Puppeteer / Headless Chrome，写入系统 PATH 的 `tablesmith-verify` 全局走查命令，10秒内生成 5 大核心场景截图自检闭环 | [`verify-ui.cjs`](file:///d:/code/zhanglx-index/disktopApp/tools/verify-ui.cjs)<br>[`BROWSER_ACCEPTANCE_SPEC.md`](file:///d:/code/zhanglx-index/disktopApp/BROWSER_ACCEPTANCE_SPEC.md) | ✅ 100% 落地 |
+| **质量保障：桌面端视觉自动化走查** | 启动 release exe 并通过 WebView2 调试端口连接 Puppeteer，写入系统 PATH 的 `tablesmith-verify` 全局走查命令，10秒内生成 5 大核心场景截图自检闭环 | [`verify-ui.cjs`](file:///d:/code/zhanglx-index/disktopApp/tools/verify-ui.cjs)<br>[`BROWSER_ACCEPTANCE_SPEC.md`](file:///d:/code/zhanglx-index/disktopApp/BROWSER_ACCEPTANCE_SPEC.md) | ✅ 100% 落地 |
 | **品牌包装：高分辨率跨平台图标** | 科技感表匠品牌视觉，全套生成 macOS `.icns`（16~1024px）与 Windows `.ico`（16~256px）图标资源 | [`src-tauri/icons/icon.icns`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src-tauri/icons/icon.icns)<br>[`src-tauri/icons/icon.ico`](file:///d:/code/zhanglx-index/disktopApp/tablesmith/src-tauri/icons/icon.ico) | ✅ 100% 落地 |
 | **CI/CD：跨平台自动化打包流水线** | GitHub Actions 多平台矩阵自动化构建，自动产出 macOS 免开发者账号 Ad-hoc DMG 与 Windows 免安装便携版 / NSIS 安装包 | [`.github/workflows/release.yml`](file:///d:/code/zhanglx-index/disktopApp/.github/workflows/release.yml) | ✅ 100% 落地 |
 
@@ -115,7 +116,7 @@ flowchart TD
   * **JSON / JSONL (`.json`, `.jsonl`, `.ndjson`)**：顶层数组直接成表（标量数组成为单列 `值`）；对象中找出深度 4 以内的每个对象数组各成一表，其余标量字段放入 `元信息` 表；嵌套对象展开为点号列名（`address.city`，深度 4 以内），标量数组以逗号连接，更深的结构保留为 JSON 文本；整份不是合法 JSON 但每行是 JSON 时按 JSON Lines 读取；语法错误提示行列位置。
   * **XML (`.xml`)**：先校验语法并提示错误行列；按元素出现顺序保留列顺序；重复出现的元素按标签各成一表（属性、叶子子元素、子元素属性 `Total@currency` 成为列，同名叶子以逗号合并）；嵌套记录携带父记录主键列（如 `Order.id`）；只出现一次的元素与根属性放入 `元信息` 表；去除命名空间前缀；按 XML 声明的编码解码；Excel 另存的 SpreadsheetML / HTML 表格按表格读取。
   * **YAML (`.yaml`, `.yml`)**：规则同 JSON；多文档 YAML（`---` 分隔）每个文档作为一行。
-* **导入入口与反馈**：文件选择器多选、拖入（桌面端通过 Tauri 原生拖放事件按路径读取，浏览器端通过 HTML 拖放）、剪贴板粘贴三种入口共用一个流程；解析在 Web Worker 中进行，切换页面时取消未完成的解析；单个文件失败不影响同批其他文件，失败原因以不自动消失的错误提示展示，有跳过内容或编码转换时以提示列出；单个文件上限 200 MB（Rust 与前端同时校验）。
+* **导入入口与反馈**：文件选择器多选、拖入窗口（Tauri 原生拖放事件按路径读取，拖动时整个数据源视图高亮）、剪贴板粘贴三种入口共用一个流程；解析在 Web Worker 中进行，切换页面时取消未完成的解析；单个文件失败不影响同批其他文件，失败原因以不自动消失的错误提示展示，有跳过内容或编码转换时以提示列出；单个文件上限 200 MB（Rust 与前端同时校验）。
 * **剪贴板一键粘贴**：用户可直接从网页表格、WPS 或外部软件复制文本，点击主界面“从剪贴板直接粘贴表格”即可秒级转为结构化工作表。
 * **输入保护**：所有读取操作均为只读；任何处理结果均以“另存为新文件”或“创建新工作表”方式输出，绝不覆盖篡改原始文件。
 
@@ -229,9 +230,9 @@ flowchart TD
 * 在宽度 `< 180px` 的侧边栏底栏与紧凑操作区，**严禁单个中文字竖向折行**（如“浅\n色”、“深\n色”）。
 * 全面采用极简 Icon 分段控制器：`[ ☀️ | 🌙 | 💻 ]`，hover 激活系统原生 Tooltip 悬浮提示。
 
-### 3. 大厂级自动化浏览器验收流水线 (Visual QA Pipeline)
+### 3. 桌面端自动化视觉验收流水线 (Visual QA Pipeline)
 * 对标阿里 Ant Design 与字节跳动 Semi Design 研发规范，建立自动化验收防错体系（规范全文见 [`BROWSER_ACCEPTANCE_SPEC.md`](file:///d:/code/zhanglx-index/disktopApp/BROWSER_ACCEPTANCE_SPEC.md)）。
-* **全局持久化工具**：在系统全局 PATH 中配置 `tablesmith-verify` 命令（持久化于 `%APPDATA%\npm\tablesmith-verify.cmd`，源码位于 [`disktopApp/tools/verify-ui.cjs`](file:///d:/code/zhanglx-index/disktopApp/tools/verify-ui.cjs)）。
+* **全局持久化工具**：在系统全局 PATH 中配置 `tablesmith-verify` 命令（持久化于 `%APPDATA%\npm\tablesmith-verify.cmd`，源码位于 [`disktopApp/tools/verify-ui.cjs`](file:///d:/code/zhanglx-index/disktopApp/tools/verify-ui.cjs)）。命令启动 `src-tauri/target/release/tablesmith.exe`（使用临时 WebView2 配置目录），通过原生拖放事件导入样例后逐页截图，结束后关闭进程并删除临时目录。
 * **5 大 P0 场景全量走查标准**：
   1. `/` (数据源)：暗黑模式 + AG Grid 纯黑背景 + 奇偶斑马纹 + 底部行列统计；
   2. `/chart` (图表)：暗黑模式 + 多序列对比柱状图 + 3px 高反差光晕数值标签；
@@ -298,7 +299,7 @@ flowchart LR
 | **Milestone 1** | **基础框架与双向转换** | Tauri 2.0 + React 19 架构；Excel 多 Sheet、CSV、XML、JSON 互转；AG Grid 表格预览 | ✅ 100% 交付 |
 | **Milestone 2** | **图表可视化与高级配置** | 5 大图表类型；4 套大厂主题配色；堆叠模式；3px 光晕数值标签；2x PNG 导出 | ✅ 100% 交付 |
 | **Milestone 3** | **高级数据清洗与透视表** | Excel 级四象限数据透视表；四则运算与拼接计算列；脱敏打码；多表 JOIN 与追加 | ✅ 100% 交付 |
-| **Milestone 4** | **报表制作与大厂工程标准** | A4 图文混排报告导出；100% 全局暗黑模式；全局 `tablesmith-verify` 浏览器自动化验收；无 CMD 弹窗桌面端 | ✅ 100% 交付 |
+| **Milestone 4** | **报表制作与大厂工程标准** | A4 图文混排报告导出；100% 全局暗黑模式；全局 `tablesmith-verify` 桌面端自动化验收；无 CMD 弹窗桌面端 | ✅ 100% 交付 |
 | **Milestone 5 (Next)** | **海量数据引擎跃升 (100万+行)** | 集成嵌入式本地分析数据库（DuckDB 或 SQLite-WASM），在本地无感极速秒级聚合千万行级数据 | ⏳ 规划中 |
 | **Milestone 6 (Next)** | **本地 AI 数据助手 (Private AI)** | 结合本地运行的 Ollama / DeepSeek 模型，用户输入自然语言（“把第三季度销售额画个占比饼图”）自动生成透视表与图表配置，核心数据绝不出内网 | ⏳ 规划中 |
 
@@ -309,4 +310,4 @@ flowchart LR
 本规划方案已将项目从前期的概念讨论稿全面升级为**与实际代码实现 100% 对齐的现代化软件设计与产品规划文档**：
 1. **查漏补缺**：全量补齐了已实现的高级数据透视表（四象限架构）、多表关联合并、数据脱敏合规、A4 图文混排 PDF 报告导出等重大特性的详细规格与交互说明。
 2. **规范纠偏**：将旧稿中关于强制收费、联网验证等不符合当前“零费用免年费、本地开箱即用”原则的假设重构为合理的阶段演进路线。
-3. **工程质量固化**：将基于 Puppeteer 的大厂级浏览器视觉自动化走查体系（`tablesmith-verify`）与 100% 全局暗黑模式标准正式纳入系统架构与规范约束体系中。
+3. **工程质量固化**：将基于 Puppeteer + WebView2 调试端口的桌面端视觉自动化走查体系（`tablesmith-verify`）与 100% 全局暗黑模式标准正式纳入系统架构与规范约束体系中。

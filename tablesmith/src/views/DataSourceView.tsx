@@ -27,7 +27,6 @@ const DataSourceView: React.FC = () => {
   } = useDataStore();
   const importer = useFileImport();
   const importing = importer.busyLabel !== null;
-  const [isDragging, setIsDragging] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
@@ -66,25 +65,6 @@ const DataSourceView: React.FC = () => {
   const handleImportNew = useCallback(() => void importer.pickFiles(), [importer]);
   const handleClipboardPaste = useCallback(() => void importer.pasteClipboard(), [importer]);
 
-  // Browser mode drop target for the whole view; desktop drops arrive via useFileImport.
-  const onDragOver = useCallback((e: React.DragEvent) => {
-    if (!e.dataTransfer.types.includes('Files')) return;
-    e.preventDefault();
-    setIsDragging(true);
-  }, []);
-  const onDragLeave = useCallback((e: React.DragEvent) => {
-    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
-    setIsDragging(false);
-  }, []);
-  const onDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setIsDragging(false);
-      void importer.importDropped(Array.from(e.dataTransfer.files));
-    },
-    [importer],
-  );
-
   if (!isInitialized) {
     return (
       <div className="flex h-full items-center justify-center p-8 bg-slate-50 dark:bg-[#0b0f19]">
@@ -107,13 +87,8 @@ const DataSourceView: React.FC = () => {
   }
 
   return (
-    <div
-      className="relative flex h-full flex-col bg-slate-50 dark:bg-[#0b0f19] text-gray-900 dark:text-gray-100"
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
-    >
-      {isDragging && (
+    <div className="relative flex h-full flex-col bg-slate-50 dark:bg-[#0b0f19] text-gray-900 dark:text-gray-100">
+      {importer.isDragging && (
         <div className="pointer-events-none absolute inset-2 z-20 flex items-center justify-center rounded-xl border-2 border-dashed border-blue-500 bg-blue-50/80 dark:bg-blue-950/60 text-sm font-medium text-blue-600 dark:text-blue-300">
           松开以导入文件
         </div>
@@ -206,7 +181,10 @@ const DataSourceView: React.FC = () => {
 
       {/* Sheet tabs */}
       {activeFile && activeFile.sheets.length > 1 && (
-        <div className="flex items-center gap-0.5 overflow-x-auto border-b border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 px-4">
+        <div
+          data-testid="sheet-tabs"
+          className="flex items-center gap-0.5 overflow-x-auto border-b border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 px-4"
+        >
           {activeFile.sheets.map((sheet, idx) => (
             <button
               key={idx}

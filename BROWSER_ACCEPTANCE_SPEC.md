@@ -1,4 +1,4 @@
-# 大厂级前端 UI 视觉与自动化浏览器验收规范 (Browser & Visual QA Specification)
+# 大厂级前端 UI 视觉与桌面端自动化验收规范 (Desktop Visual QA Specification)
 
 > 本规范对标阿里 Ant Design / 字节跳动 Semi Design / 腾讯 TDesign 及 Google Material Design 的工业级前端工程实践，为表匠及其衍生模块提供强制性的前端视觉质量红线、审美度量基准与自动化浏览器走查标准。
 
@@ -7,14 +7,14 @@
 ## 一、 核心准则与工程价值观
 
 1. **零假设与前置自检原则（Shift-Left & Zero-Assumption）**：
-   - **严禁“凭感觉交付”或“让用户当人体测试仪”**。任何涉及界面布局、颜色主题、组件间距、文本排版或图表渲染的修改，开发者/AI Agent 必须在提交或向用户汇报前，**主动启动真实浏览器环境执行端到端自动化走查**。
-   - 所有核心页面（P0 级链路）必须通过自动化无头浏览器（Headless Chrome / Puppeteer）生成真实像素渲染截图，开发者/Agent 必须亲自逐像素审视自检，确认无瑕疵后方可交付。
+   - **严禁“凭感觉交付”或“让用户当人体测试仪”**。任何涉及界面布局、颜色主题、组件间距、文本排版或图表渲染的修改，开发者/AI Agent 必须在提交或向用户汇报前，**在真实的桌面 release exe 上执行端到端自动化走查**（产品不提供浏览器版本）。
+   - 所有核心页面（P0 级链路）必须由 Puppeteer 通过 WebView2 调试端口连接 `tablesmith.exe` 生成真实像素渲染截图，开发者/Agent 必须亲自逐像素审视自检，确认无瑕疵后方可交付。
 
 2. **单一可信源原则（Single Source of Truth - Design Tokens）**：
    - 严禁在视图层随意硬编码颜色（如 `#123456`）、非规范字号或随机间距。所有样式必须严格绑定 Tailwind Design Tokens 或 CSS 统一变量（`var(--ag-*)`、`dark:*` 类）。
 
 3. **视觉自动化走查持久化准则**：
-   - 自动化走查工具链（Puppeteer、Chrome 自动化脚本）必须持久化至全局开发环境（系统 `PATH` 与 `NODE_PATH`），支持一键执行 `tablesmith-verify`，可无缝接入 CI/CD 流水线与本地快速巡检。
+   - 自动化走查工具链（Puppeteer、WebView2 连接脚本）必须持久化至全局开发环境（系统 `PATH` 与 `NODE_PATH`），支持一键执行 `tablesmith-verify`，可无缝接入 CI/CD 流水线与本地快速巡检。
 
 ---
 
@@ -54,15 +54,15 @@
 每次 UI 重构或功能演进后，自动化脚本必须覆盖以下五大核心视口与场景：
 | 序号 | 页面路径 | 场景要求 | 验证重点 |
 | :--- | :--- | :--- | :--- |
-| **01** | `/` (数据源) | 暗黑模式 + 注入多工作表数据 | AG Grid 纯黑背景、表头高对比、奇偶行斑马纹、底部行数状态栏 |
+| **01** | `/` (数据源) | 暗黑模式 + 通过原生拖放事件导入多工作表样例 | AG Grid 纯黑背景、表头高对比、奇偶行斑马纹、底部行数状态栏 |
 | **02** | `/chart` (图表可视化) | 暗黑模式 + 开启数值标签 | 柱状图对比序列渲染、数值标签描边清晰度、多调色板主题 |
 | **03** | `/process` (数据处理) | 暗黑模式 + Excel 级四象限透视表 | 透视配置面板四区、多层级折叠展开、透视结果表格纯黑质感 |
 | **04** | `/report` (报表生成) | 暗黑模式 + A4 打印级预览 | 暗黑操作台与纸张阴影层次、KPI 指标卡、图表嵌入与打印流式样式 |
 | **05** | `/chart` (浅色复测) | 浅色模式对比回归 | 浅色高质感灰底白卡对比度、分段控制器状态切换、标签反差 |
 
 ### 2. 避免测试噪点的工程技巧（Anti-Flakiness Rules）
-1. **确定性 Mock 数据源**：统一使用脱敏的标准测试用例（如 4 季度 3 产品线综合报表），避免因无数据展示空白或动态时间抖动。
-2. **`networkidle0` 彻底等待**：页面跳转必须等待网络完全静默，DOM 树渲染及 CSS 动画完成后再执行截屏。
+1. **确定性样例数据**：统一导入 `tablesmith/sample-data/` 中的脱敏样例（如 `multi_sheet_demo.xlsx`），走完真实的 Rust 读取与 Worker 解析链路，避免因无数据展示空白或动态时间抖动。
+2. **隔离与等待**：每次走查使用临时 WebView2 配置目录（不读写用户自己的工作台与历史）；页面跳转后等待目标元素出现、CSS 动画完成后再执行截屏。
 3. **禁用光标闪烁与平滑滚动**：在截屏环境中注入样式消除文本输入框光标闪烁（`caret-color: transparent`），杜绝像素级回归比对误报。
 
 ---
@@ -72,13 +72,16 @@
 本系统已将自动化浏览器走查引擎内置并写入全局环境：
 
 ```bash
-# 全局任意路径直接执行（已写入 Windows PATH）
+# 先编译 release exe
+cd tablesmith && npx tauri build --no-bundle
+
+# 全局任意路径直接执行（已写入 Windows PATH），截图默认输出到 disktopApp/screenshots
 tablesmith-verify
 
-# 或指定目标端口与截图输出目录
-tablesmith-verify http://localhost:5173/ ./custom_screenshots
+# 或指定截图输出目录；TABLESMITH_EXE 环境变量可指向其他 exe
+tablesmith-verify ./custom_screenshots
 ```
 
 * **全局可执行脚本路径**：`%APPDATA%\npm\tablesmith-verify.cmd`
-* **核心自动化引擎源码**：[`disktopApp/tools/verify-ui.cjs`](file:///d:/code/zhanglx-index/disktopApp/tools/verify-ui.cjs)
-* **环境依赖**：Node.js 18+、Google Chrome 稳定版、全局 `puppeteer`。
+* **核心自动化引擎源码**：[`disktopApp/tools/verify-ui.cjs`](file:///d:/code/zhanglx-index/disktopApp/tools/verify-ui.cjs)（P0 截图）、[`disktopApp/tools/verify-import-e2e.cjs`](file:///d:/code/zhanglx-index/disktopApp/tools/verify-import-e2e.cjs)（导入端到端），共用 [`tools/lib/desktop-app.cjs`](file:///d:/code/zhanglx-index/disktopApp/tools/lib/desktop-app.cjs) 启动并连接 exe。
+* **环境依赖**：Node.js 18+、WebView2 Runtime（Windows 10/11 自带）、全局 `puppeteer`。

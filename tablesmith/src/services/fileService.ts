@@ -1,5 +1,6 @@
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { XMLBuilder } from 'fast-xml-parser';
 import * as YAML from 'js-yaml';
 import Papa from 'papaparse';
@@ -8,7 +9,6 @@ import type { SheetData, ExportFormat } from '../types';
 import { parseNumericCell } from '../utils/numberUtils';
 import {
   ImportError,
-  MAX_IMPORT_BYTES,
   SUPPORTED_EXTENSIONS,
   assertSupported,
   parseClipboardText,
@@ -59,7 +59,7 @@ export async function resolveDefaultExportDir(): Promise<string> {
   const last = getLastExportDir();
   if (last) return last;
 
-  if (isTauriEnv()) {
+  {
     try {
       const { downloadDir, documentDir } = await import('@tauri-apps/api/path');
       const d = await downloadDir();
@@ -82,28 +82,49 @@ export async function resolveDefaultExportDir(): Promise<string> {
 }
 
 /**
- * Check if the application is running inside Tauri desktop environment.
+ * Resolve a non-colliding path: the Rust command appends (1), (2), ... when the target exists.
  */
-export function isTauriEnv(): boolean {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+export async function getUniqueFilePath(fullPath: string): Promise<string> {
+  return invoke<string>('get_unique_filepath', { path: fullPath });
+}
+
+export interface SaveResult {
+  saved: boolean;
+  fileName: string;
+  path?: string;
 }
 
 /**
- * Resolves a non-colliding file path. In Tauri desktop mode, calls the backend command
- * to append (1), (2), etc. if the file already exists in the target directory.
- * In browser mode, returns the provided path unchanged.
+ * Write exported bytes or text to disk. Uses the chosen (or remembered) directory without
+ * a second dialog, falls back to a save dialog when no directory is known, never overwrites
+ * an existing file, and remembers the directory for the next export.
  */
-export async function getUniqueFilePath(fullPath: string): Promise<string> {
-  if (isTauriEnv()) {
-    try {
-      const unique: string = await invoke('get_unique_filepath', { path: fullPath });
-      return unique;
-    } catch (err) {
-      console.warn('Failed to resolve unique filepath via Tauri:', err);
-      return fullPath;
-    }
+export async function saveExport(
+  fullFileName: string,
+  content: Uint8Array | string,
+  filter: { name: string; extensions: string[] },
+  targetDirectory?: string,
+): Promise<SaveResult> {
+  const dir = (targetDirectory && targetDirectory.trim()) || getLastExportDir();
+  let savePath: string;
+  if (dir) {
+    savePath = `${dir.replace(/[\\/]+$/, '')}\\${fullFileName}`;
+  } else {
+    const picked = await save({ defaultPath: fullFileName, filters: [filter] });
+    if (!picked) return { saved: false, fileName: fullFileName };
+    savePath = picked;
   }
-  return fullPath;
+  savePath = await getUniqueFilePath(savePath);
+
+  if (typeof content === 'string') {
+    await invoke('save_file', { path: savePath, content });
+  } else {
+    await invoke('save_binary_file', { path: savePath, data: Array.from(content) });
+  }
+
+  const lastSlash = Math.max(savePath.lastIndexOf('\\'), savePath.lastIndexOf('/'));
+  if (lastSlash > 0) setLastExportDir(savePath.substring(0, lastSlash));
+  return { saved: true, fileName: savePath.substring(lastSlash + 1) || fullFileName, path: savePath };
 }
 
 // ── import ───────────────────────────────────────────────────────────
@@ -125,7 +146,7 @@ export function describeImportError(err: unknown): string {
   return '解析失败：未知错误';
 }
 
-/** Desktop: Rust reads the file (calamine / encoding detection); the worker builds tables. */
+/** Rust reads the file (calamine / encoding detection); the worker builds tables. */
 export async function importFromPath(path: string, signal?: AbortSignal): Promise<ImportResult> {
   const fileName = baseName(path);
   assertSupported(fileName);
@@ -133,15 +154,6 @@ export async function importFromPath(path: string, signal?: AbortSignal): Promis
   if (response.kind !== 'unparsed') return parsePayloadInWorker(fileName, response, signal);
   const bytes = await invoke<ArrayBuffer>('read_file_bytes', { path });
   return parseBytesInWorker(fileName, bytes, signal);
-}
-
-/** Browser: read the File and parse it in the worker. */
-export async function importFromBrowserFile(file: File, signal?: AbortSignal): Promise<ImportResult> {
-  assertSupported(file.name);
-  if (file.size > MAX_IMPORT_BYTES) {
-    throw new ImportError(`文件超过 ${MAX_IMPORT_BYTES / 1024 / 1024} MB，暂不支持导入`);
-  }
-  return parseBytesInWorker(file.name, await file.arrayBuffer(), signal);
 }
 
 async function settle(fileName: string, run: () => Promise<ImportResult>): Promise<ImportOutcome> {
@@ -160,53 +172,40 @@ export async function importPaths(paths: string[], signal?: AbortSignal): Promis
   return out;
 }
 
-export async function importBrowserFiles(files: File[], signal?: AbortSignal): Promise<ImportOutcome[]> {
-  const out: ImportOutcome[] = [];
-  for (const file of files) out.push(await settle(file.name, () => importFromBrowserFile(file, signal)));
-  return out;
-}
-
-/** Show the system picker (or a browser file input) and return the chosen files' outcomes. */
+/** Show the system picker and import the chosen files. */
 export async function pickAndImportFiles(signal?: AbortSignal): Promise<ImportOutcome[]> {
-  if (isTauriEnv()) {
-    const selected = await open({
-      multiple: true,
-      filters: [{ name: '数据文件', extensions: [...SUPPORTED_EXTENSIONS] }],
-    });
-    if (!selected) return [];
-    const paths = Array.isArray(selected) ? selected : [selected];
-    return importPaths(paths, signal);
-  }
-  const files = await pickBrowserFiles();
-  return importBrowserFiles(files, signal);
+  const selected = await open({
+    multiple: true,
+    filters: [{ name: '数据文件', extensions: [...SUPPORTED_EXTENSIONS] }],
+  });
+  if (!selected) return [];
+  return importPaths(Array.isArray(selected) ? selected : [selected], signal);
 }
 
-function pickBrowserFiles(): Promise<File[]> {
-  return new Promise((resolve) => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.multiple = true;
-    input.accept = SUPPORTED_EXTENSIONS.map((e) => `.${e}`).join(',');
+export type FileDropEvent = { type: 'over' } | { type: 'leave' } | { type: 'drop'; paths: string[] };
 
-    let resolved = false;
-    const finish = (files: File[]) => {
-      if (resolved) return;
-      resolved = true;
-      window.removeEventListener('focus', onWindowFocus);
-      input.remove();
-      resolve(files);
-    };
-    input.onchange = () => finish(Array.from(input.files ?? []));
-    input.addEventListener('cancel', () => finish([]));
-    // Older WebViews do not dispatch `cancel`; a focus return with no selection means dismissed.
-    const onWindowFocus = () => {
-      setTimeout(() => {
-        if (!input.files || input.files.length === 0) finish([]);
-      }, 400);
-    };
-    window.addEventListener('focus', onWindowFocus, { once: true });
-    input.click();
-  });
+/**
+ * Subscribe to native file drops on the window. Tauri intercepts OS drag and drop
+ * (`dragDropEnabled`), so HTML drop events never fire; this is the only drop source.
+ */
+export function onFileDrop(handler: (event: FileDropEvent) => void): () => void {
+  let disposed = false;
+  let unlisten: (() => void) | null = null;
+  void getCurrentWebview()
+    .onDragDropEvent((event) => {
+      const p = event.payload;
+      if (p.type === 'enter' || p.type === 'over') handler({ type: 'over' });
+      else if (p.type === 'leave') handler({ type: 'leave' });
+      else handler({ type: 'drop', paths: p.paths });
+    })
+    .then((fn) => {
+      if (disposed) fn();
+      else unlisten = fn;
+    });
+  return () => {
+    disposed = true;
+    unlisten?.();
+  };
 }
 
 /**
@@ -227,18 +226,17 @@ export async function importFromClipboard(): Promise<ImportResult> {
 }
 
 /**
- * Export a sheet to the specified format via Tauri save dialog / browser download.
+ * Export a sheet to the specified format and write it to disk.
  */
 export async function exportFile(
   data: SheetData,
   format: ExportFormat,
   fileName: string,
   targetDirectory?: string,
-): Promise<{ saved: boolean; fileName: string; path?: string }> {
+): Promise<SaveResult> {
   let textContent: string | null = null;
   let binaryContent: Uint8Array | null = null;
   let extension = format as string;
-  let mimeType = 'text/plain';
 
   const records = data.rows.map((row) => {
     const obj: Record<string, string> = {};
@@ -251,12 +249,10 @@ export async function exportFile(
   switch (format) {
     case 'csv': {
       textContent = Papa.unparse(records);
-      mimeType = 'text/csv';
       break;
     }
     case 'json': {
       textContent = JSON.stringify(records, null, 2);
-      mimeType = 'application/json';
       break;
     }
     case 'xlsx': {
@@ -265,7 +261,6 @@ export async function exportFile(
       XLSX.utils.book_append_sheet(wb, ws, data.name || 'Sheet1');
       const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
       binaryContent = new Uint8Array(buf);
-      mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
       break;
     }
     case 'xml': {
@@ -275,13 +270,11 @@ export async function exportFile(
         arrayNodeName: 'row',
       });
       textContent = builder.build({ data: { row: records } }) as string;
-      mimeType = 'application/xml';
       break;
     }
     case 'yaml': {
       textContent = YAML.dump(records);
       extension = 'yaml';
-      mimeType = 'text/yaml';
       break;
     }
     case 'sql': {
@@ -302,66 +295,10 @@ export async function exportFile(
         `-- Tablesmith Export\n-- Table: ${tableName}\n-- Date: ${new Date().toISOString()}\n\n` +
         insertStatements.join('\n');
       extension = 'sql';
-      mimeType = 'application/sql';
       break;
     }
   }
 
-  const fullFileName = `${fileName}.${extension}`;
-
-  if (isTauriEnv()) {
-    let savePath = '';
-    const resolvedDir = (targetDirectory && targetDirectory.trim()) || getLastExportDir();
-
-    if (resolvedDir) {
-      savePath = `${resolvedDir.replace(/[\\/]+$/, '')}\\${fullFileName}`;
-    } else {
-      // Fallback only if no directory was provided or remembered
-      const picked = await save({
-        defaultPath: fullFileName,
-        filters: [{ name: format.toUpperCase(), extensions: [extension] }],
-      });
-      if (!picked) return { saved: false, fileName: fullFileName };
-      savePath = picked;
-    }
-
-    // Safeguard: auto-number with (1), (2) if the file already exists in destination
-    savePath = await getUniqueFilePath(savePath);
-
-    if (binaryContent) {
-      await invoke('save_binary_file', {
-        path: savePath,
-        data: Array.from(binaryContent),
-      });
-    } else if (textContent !== null) {
-      await invoke('save_file', {
-        path: savePath,
-        content: textContent,
-      });
-    }
-
-    // Persist this directory for all future exports
-    const lastSlash = Math.max(savePath.lastIndexOf('\\'), savePath.lastIndexOf('/'));
-    if (lastSlash > 0) {
-      setLastExportDir(savePath.substring(0, lastSlash));
-    }
-
-    // Extract actual file name (in case it was auto-numbered)
-    const actualFileName = savePath.substring(lastSlash + 1) || fullFileName;
-
-    return { saved: true, fileName: actualFileName, path: savePath };
-  }
-
-  // Browser fallback: trigger file download via Blob
-  const blob = binaryContent
-    ? new Blob([binaryContent.buffer as ArrayBuffer], { type: mimeType })
-    : new Blob([textContent || ''], { type: mimeType });
-
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = fullFileName;
-  a.click();
-  URL.revokeObjectURL(url);
-  return { saved: true, fileName: fullFileName };
+  const content = binaryContent ?? textContent ?? '';
+  return saveExport(`${fileName}.${extension}`, content, { name: format.toUpperCase(), extensions: [extension] }, targetDirectory);
 }

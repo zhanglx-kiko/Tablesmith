@@ -1,6 +1,6 @@
 # 📊 表匠（Tablesmith）— 桌面报表数据转换与可视化工具
 
-一款专为 macOS（并兼容 Windows）打造的高性能轻量桌面应用，**无需上架 App Store，无需付费购买 Apple 开发者账号**，直接生成 `.dmg` 安装包即可分发使用。
+基于 Tauri 2 的桌面应用。当前以 Windows 为主要开发和验证平台，macOS 版本通过 GitHub Actions 打包后再在 Mac 上验证；不提供浏览器版本。
 
 ---
 
@@ -8,7 +8,7 @@
 
 1. **多数据源读取与预览**
    - 支持 `.xlsx` / `.xlsm` / `.xlsb` / `.xls` / `.ods`、`.csv` / `.tsv` / `.txt`、`.json` / `.jsonl`、`.xml`、`.xsd`、`.yaml`；可一次选择或拖入多个文件，单个文件上限 200 MB
-   - **统一导入管线**：桌面端由 Rust 读取文件（calamine 读表格单元格，文本做编码识别），浏览器端由 SheetJS 读取；两端得到同一种原始单元格网格，再交给同一个 TypeScript 规整器生成表格，所以同一个文件在两端结果一致（有逐文件对比测试）。解析在 Web Worker 中进行，大文件不卡界面
+   - **统一导入管线**：Rust 读取文件（calamine 读表格单元格，文本做编码识别）；calamine 读不了的工作簿（xlsb、ods、部分 xls）改由 SheetJS 读取。两种读取方式都输出同一种原始单元格网格，再交给同一个 TypeScript 规整器生成表格（有逐文件对比测试保证两者一致）。解析在 Web Worker 中进行，大文件不卡界面
    - **表头识别**：跳过报表大标题和空行，按“文字/日期多、数字少”定位真实表头；合并单元格的多级表头拼成 `上半年 / Q1`；纵向合并的单元格向下填充；首行就是数字的表按无表头处理，列名为 `列A`、`列B`；月份表头显示为 `2024-01`
    - **一表多块**：同一工作表中用空行和小标题隔开的多个表格拆成独立工作表（如 `Summary · Monthly trend`）；表头上方的说明行、表尾的“数据来源”类备注不进入数据，并在导入提示中列出
    - **单元格值**：数值保留原始精度（15 位有效数字，`0.1+0.2` 显示为 `0.3`，不做货币/千分位格式化）；日期、时间、日期时间分别输出 `2024-01-31`、`13:45:00`、`2024-02-01 09:30:15`；公式取缓存结果，没有缓存结果的公式会提示数量；隐藏工作表照常导入并提示，空白工作表跳过
@@ -18,9 +18,9 @@
    - **重复列名**自动编号为 `金额_2`；空列自动去除；加密工作簿、不支持的类型、空文件、语法错误都会显示具体原因，批量导入时单个失败不影响其他文件
    - **全格网垂直分割线与平滑列宽拖拽**：表头与单元格均具备清晰垂直分割线（浅色 `#e2e8f0` / 深色 `#1e293b`），扩充列宽调节热区至 14px，支持边框丝滑拖拽、双击表头边缘自动贴合内容，状态栏配备“自适应列宽”与“平铺撑满”一键控制
    - **单元格与字体多维缩放系统（Cell & View Zoom）**：状态栏原生集成缩放控制（`70% ~ 160%` 微调），配备 `紧凑 (85%)`、`标准 (100%)`、`宽松 (120%)` 三态密度预设，联动行高、字号与表头无级自适应重绘，偏好设置持久化记忆
-   - **全场景高对比度 SVG 筛选按钮与弹窗防重叠**：桌面端与 Web 端均采用独立矢量 SVG 滤镜遮罩与 CSP 穿透优化，杜绝按钮白块与图标丢失；优化筛选弹出面板输入框边距（`padding-left: 26px`），彻底消除背景放大镜图标与搜索文字的重叠
+   - **全场景高对比度 SVG 筛选按钮与弹窗防重叠**：采用独立矢量 SVG 滤镜遮罩与 CSP 穿透优化，杜绝按钮白块与图标丢失；优化筛选弹出面板输入框边距（`padding-left: 26px`），彻底消除背景放大镜图标与搜索文字的重叠
    - **工作台会话无缝持久化（Session Continuity）**：未主动点击关闭标签（`X`）的数据源在应用重启或刷新后 100% 自动恢复（基于 IndexedDB 异步缓存），直接继续操作而无需重新导入
-   - 支持拖拽文件导入（桌面端和浏览器端均可）、文件选择器多选，以及从系统剪贴板粘贴 Excel / 网页表格
+   - 支持把文件拖入窗口任意位置导入、文件选择器多选，以及从系统剪贴板粘贴 Excel / 网页表格
    - 高性能 AG Grid 33 数据表格预览，支持虚拟滚动、多列排序、条件筛选、多选、列宽自适应与行列状态统计
 
 2. **多格式双向互转与导出**
@@ -49,36 +49,26 @@
 6. **100% 全局暗黑模式与大厂级自动化走查**
    - 极简 Icon 胶囊分段控制器（`[ ☀️ | 🌙 | 💻 ]`），杜绝紧凑空间文字折行
    - AG Grid 深度穿透全深色定制，无眩光局部白块
-   - 写入系统 PATH 的 `tablesmith-verify` 浏览器自动化走查引擎，秒级完成 5 大 P0 场景截屏自检
+   - 写入系统 PATH 的 `tablesmith-verify` 走查命令：启动真实的 release exe，通过 WebView2 调试端口完成 5 大 P0 场景截屏自检
 
 ---
 
 ## 🚀 快速上手与运行
 
-### 方式一：浏览器极速预览（无需 Rust）
-
-无需安装 Rust 环境，只需 Node.js：
+需要 Node.js 与 Rust（Windows 还需要系统自带的 WebView2 Runtime）。
 
 ```bash
 cd tablesmith
 npm install
-npm run dev
-```
 
-在浏览器打开 `http://localhost:1420` 即可体验完整的数据导入、预览、转换与图表功能！已在 `sample-data/` 目录下准备好了示例文件：
-- `sample-data/multi_sheet_demo.xlsx` (多工作表 Excel)
-- `sample-data/sales_report.csv` (年度销售数据)
-- `sample-data/department_stats.xml` (部门报表 XML)
-- `sample-data/saas_products.json` (SaaS 产品指标 JSON)
-
-### 方式二：macOS / Windows 桌面端运行（基于 Tauri 2.0）
-
-需要安装 Rust 编译器（如未安装请见下方说明）：
-
-```bash
-# 启动桌面开发模式
+# 开发模式：自动启动 Vite 并打开桌面窗口，前端改动热更新
 npm run tauri dev
+
+# 编译 release exe（不打安装包），产物为 src-tauri/target/release/tablesmith.exe
+npx tauri build --no-bundle
 ```
+
+`npm run dev` 只为 `tauri dev` 提供前端页面，单独在浏览器里打开不能使用（没有 Rust 读写文件能力）。`sample-data/` 下有示例文件：`multi_sheet_demo.xlsx`、`sales_report.csv`、`department_stats.xml`、`saas_products.json`，`edge-cases/` 为导入边界样例。
 
 ### 测试
 
@@ -89,11 +79,11 @@ npm test
 # Rust 读取层测试
 cd src-tauri && cargo test --lib
 
-# 生成 Rust 读取结果快照，npm test 会据此比对桌面端与浏览器端结果
+# 生成 Rust 读取结果快照，npm test 会据此比对 calamine 与 SheetJS 两种读取结果
 cd src-tauri && cargo test --lib export_payloads -- --ignored
 ```
 
-边界样例由 `scripts/generate-edge-fixtures.py`（需要 openpyxl）和 `scripts/generate-edge-fixtures.cjs` 生成到 `sample-data/edge-cases/`。浏览器端到端导入检查：先 `npm run dev`，再在仓库根目录运行 `node tools/verify-import-e2e.cjs`。
+边界样例由 `scripts/generate-edge-fixtures.py`（需要 openpyxl）和 `scripts/generate-edge-fixtures.cjs` 生成到 `sample-data/edge-cases/`。界面检查都在真实 exe 上进行：先编译 release exe，再在仓库根目录运行 `node tools/verify-import-e2e.cjs`（导入端到端）或 `tablesmith-verify`（P0 场景截图）。脚本使用临时 WebView2 配置目录，不会影响你本机已打开的工作台和历史记录。
 
 ---
 
@@ -149,7 +139,7 @@ tablesmith/
 │   │   │   ├── index.ts           # 入口：按扩展名与文件头分派格式
 │   │   │   ├── types.ts           # 原始单元格网格契约（与 src-tauri/src/import.rs 对应）
 │   │   │   ├── normalize.ts       # 表头识别、合并单元格、一表多块拆分、去空列
-│   │   │   ├── sheetjsReader.ts   # 浏览器端表格读取（SheetJS → 原始网格）
+│   │   │   ├── sheetjsReader.ts   # SheetJS 读取（calamine 读不了的工作簿）
 │   │   │   ├── decode.ts          # 文本编码识别
 │   │   │   ├── delimited.ts       # CSV / TSV / 分隔符文本
 │   │   │   ├── structured.ts      # JSON / JSONL / YAML
@@ -158,7 +148,7 @@ tablesmith/
 │   │   │   └── import.worker.ts   # 后台解析线程
 │   │   ├── chartService.ts        # 图表配置生成服务
 │   │   ├── dataProcessService.ts  # 数据清洗、计算衍生列、脱敏、关联与拼接引擎
-│   │   ├── fileService.ts         # 导入入口（Tauri / 浏览器）与各格式导出
+│   │   ├── fileService.ts         # 导入入口、原生拖放、各格式导出与统一保存流程
 │   │   ├── pivotTableService.ts   # Excel 级多维交叉数据透视表计算引擎
 │   │   ├── reportService.ts       # A4 图文混排报告导出与系统打印服务
 │   │   └── storageService.ts      # IndexedDB 工作台未关闭数据源自动恢复与缓存服务
