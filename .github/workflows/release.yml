@@ -1,0 +1,59 @@
+name: "Release Tablesmith"
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest'
+            args: '--bundles dmg'
+          - platform: 'windows-latest'
+            args: '--bundles nsis,msi'
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: tablesmith/package-lock.json
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Install dependencies (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          echo "macOS toolchain ready"
+
+      - name: Install frontend dependencies
+        working-directory: ./tablesmith
+        run: npm install --legacy-peer-deps
+
+      - name: Build Tauri App
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: './tablesmith'
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Tablesmith ${{ github.ref_name }}'
+          releaseBody: '表匠 Tablesmith 桌面数据转换与可视化工具安装包'
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}

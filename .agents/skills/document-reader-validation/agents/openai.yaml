@@ -1,0 +1,4 @@
+interface:
+  display_name: "文档读者检验"
+  short_description: "用无讨论上下文的目标读者，检验正式文档能否独立支持理解、决策和执行"
+  default_prompt: "使用 $document-reader-validation 检验这份文档，记录读者无法回答的问题并修订复测。"

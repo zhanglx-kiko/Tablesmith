@@ -1,0 +1,337 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #f9fafb;
+  color: #111827;
+}
+
+html.dark,
+html.dark body,
+body.dark {
+  background-color: #030712;
+  color: #f3f4f6;
+}
+
+/* Custom scrollbar — thin, macOS-like */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-300 dark:bg-gray-700 rounded-full;
+  transition: background 0.2s;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-400 dark:bg-gray-600;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* AG Grid overrides & Global Dark Mode */
+.ag-theme-alpine {
+  --ag-border-color: #e2e8f0;
+  --ag-secondary-border-color: #cbd5e1;
+  --ag-header-background-color: #f8fafc;
+  --ag-odd-row-background-color: #fbfcfe;
+  --ag-row-hover-color: #f0f7ff;
+  --ag-selected-row-background-color: #dbeafe;
+  --ag-font-size: 13px;
+  --ag-row-height: 36px;
+  --ag-header-height: 40px;
+  --ag-cell-horizontal-border: solid 1px #e2e8f0;
+  --ag-header-column-separator-display: block;
+  --ag-header-column-separator-color: #cbd5e1;
+  --ag-header-column-separator-height: 70%;
+  --ag-header-column-separator-width: 1px;
+}
+
+/* Explicit Table Column Dividers (Vertical Gridlines) */
+.ag-theme-alpine .ag-header-cell,
+.ag-theme-alpine .ag-header-group-cell {
+  border-right: 1px solid #cbd5e1 !important;
+}
+
+.ag-theme-alpine .ag-cell {
+  border-right: 1px solid #e2e8f0 !important;
+}
+
+/* Hover effect & hit area on column resize handle */
+.ag-theme-alpine .ag-header-cell-resize,
+.ag-theme-alpine-dark .ag-header-cell-resize {
+  cursor: col-resize !important;
+  width: 14px !important;
+  right: -7px !important;
+  z-index: 20 !important;
+}
+
+.ag-theme-alpine .ag-header-cell-resize::after,
+.ag-theme-alpine-dark .ag-header-cell-resize::after {
+  content: "" !important;
+  position: absolute !important;
+  top: 10% !important;
+  bottom: 10% !important;
+  left: 6px !important;
+  width: 2px !important;
+  background-color: transparent !important;
+  border-radius: 1px !important;
+  transition: background-color 0.15s ease, width 0.15s ease !important;
+}
+
+.ag-theme-alpine .ag-header-cell:hover .ag-header-cell-resize::after,
+.ag-theme-alpine .ag-header-cell-resize:hover::after {
+  background-color: #3b82f6 !important;
+  width: 3px !important;
+}
+
+/* Crisp, high-contrast SVG Filter Icon (100% reliable across Desktop WebView2 & Browser) */
+.ag-icon-filter::before {
+  content: "" !important;
+  display: inline-block !important;
+  width: 12px !important;
+  height: 12px !important;
+  background-color: currentColor !important;
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolygon points='22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3'%3E%3C/polygon%3E%3C/svg%3E") !important;
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolygon points='22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3'%3E%3C/polygon%3E%3C/svg%3E") !important;
+  mask-size: contain !important;
+  -webkit-mask-size: contain !important;
+  mask-repeat: no-repeat !important;
+  -webkit-mask-repeat: no-repeat !important;
+  mask-position: center !important;
+  -webkit-mask-position: center !important;
+}
+
+/* Filter button in column header */
+.ag-header-cell-filter-button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  opacity: 0.75 !important;
+  padding: 3px !important;
+  margin-left: 2px !important;
+  border-radius: 4px !important;
+  color: #475569 !important;
+  flex-shrink: 0 !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+}
+
+.ag-header-cell-filter-button:hover,
+.ag-header-cell:hover .ag-header-cell-filter-button {
+  opacity: 1 !important;
+  color: #2563eb !important;
+  background-color: rgba(59, 130, 246, 0.12) !important;
+}
+
+html.dark .ag-header-cell-filter-button,
+.dark .ag-header-cell-filter-button {
+  color: #94a3b8 !important;
+}
+
+html.dark .ag-header-cell-filter-button:hover,
+.dark .ag-header-cell-filter-button:hover,
+html.dark .ag-header-cell:hover .ag-header-cell-filter-button,
+.dark .ag-header-cell:hover .ag-header-cell-filter-button {
+  color: #60a5fa !important;
+  background-color: rgba(96, 165, 250, 0.18) !important;
+}
+
+/* Prevent header cell title truncation from cutting off filter button */
+.ag-cell-label-container {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  width: 100% !important;
+}
+
+.ag-header-cell-label {
+  display: flex !important;
+  align-items: center !important;
+  min-width: 0 !important;
+  flex: 1 1 auto !important;
+  overflow: hidden !important;
+}
+
+.ag-header-cell-text {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+/* Prevent filter popup input background icon from overlapping with text */
+.ag-filter input.ag-input-field-input,
+.ag-filter-menu input.ag-input-field-input,
+.ag-text-field-input-wrapper input.ag-input-field-input {
+  padding-left: 26px !important;
+  padding-right: 8px !important;
+  border-radius: 6px !important;
+}
+
+/* AG Grid v33 complete dark theme overrides */
+html.dark [class*="ag-theme-"],
+html.dark .ag-root-wrapper,
+.dark [class*="ag-theme-"],
+.dark .ag-root-wrapper {
+  --ag-background-color: #0e1524 !important;
+  --ag-foreground-color: #f1f5f9 !important;
+  --ag-header-background-color: #162032 !important;
+  --ag-header-foreground-color: #e2e8f0 !important;
+  --ag-odd-row-background-color: #0b111e !important;
+  --ag-row-hover-color: #1e293b80 !important;
+  --ag-selected-row-background-color: #1d4ed850 !important;
+  --ag-border-color: #1e293b !important;
+  --ag-secondary-border-color: #334155 !important;
+  --ag-data-color: #f1f5f9 !important;
+  --ag-card-shadow: 0 1px 20px 1px black !important;
+  --ag-cell-horizontal-border: solid 1px #1e293b !important;
+  --ag-header-column-separator-display: block !important;
+  --ag-header-column-separator-color: #334155 !important;
+  --ag-header-column-separator-height: 70% !important;
+  --ag-header-column-separator-width: 1px !important;
+  color-scheme: dark !important;
+}
+
+html.dark .ag-root-wrapper,
+.dark .ag-root-wrapper {
+  background-color: #0e1524 !important;
+  color: #f1f5f9 !important;
+  border-color: #1e293b !important;
+}
+
+html.dark .ag-header,
+.dark .ag-header {
+  background-color: #162032 !important;
+  color: #e2e8f0 !important;
+  border-bottom-color: #1e293b !important;
+}
+
+html.dark .ag-header-cell,
+.dark .ag-header-cell {
+  background-color: #162032 !important;
+  color: #e2e8f0 !important;
+  border-right: 1px solid #334155 !important;
+}
+
+html.dark .ag-header-cell-text,
+.dark .ag-header-cell-text {
+  color: #e2e8f0 !important;
+  font-weight: 600 !important;
+}
+
+html.dark .ag-row,
+.dark .ag-row {
+  background-color: #0e1524 !important;
+  color: #f1f5f9 !important;
+  border-bottom-color: #1e293b !important;
+}
+
+html.dark .ag-row-odd,
+.dark .ag-row-odd {
+  background-color: #0b111e !important;
+}
+
+html.dark .ag-row-hover,
+.dark .ag-row-hover {
+  background-color: #1e293b80 !important;
+}
+
+html.dark .ag-cell,
+.dark .ag-cell {
+  color: #f1f5f9 !important;
+  border-right: 1px solid #1e293b !important;
+}
+
+html.dark .ag-header-cell:hover .ag-header-cell-resize::after,
+html.dark .ag-header-cell-resize:hover::after,
+.dark .ag-header-cell:hover .ag-header-cell-resize::after,
+.dark .ag-header-cell-resize:hover::after {
+  background-color: #60a5fa !important;
+}
+
+html.dark .ag-paging-panel,
+html.dark .ag-status-bar,
+.dark .ag-paging-panel,
+.dark .ag-status-bar {
+  background-color: #162032 !important;
+  color: #94a3b8 !important;
+  border-top-color: #1e293b !important;
+}
+
+/* Global Dark Mode Dropdowns, Selects & Option Menus */
+html.dark select,
+html.dark option,
+html.dark optgroup,
+.dark select,
+.dark option,
+.dark optgroup {
+  color-scheme: dark !important;
+  background-color: #111827 !important;
+  color: #f3f4f6 !important;
+}
+
+html.dark option:checked,
+.dark option:checked {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+}
+
+html.dark option:hover,
+.dark option:hover {
+  background-color: #1f2937 !important;
+}
+
+html.dark input[type="text"],
+html.dark input[type="search"],
+html.dark input[type="number"],
+.dark input[type="text"],
+.dark input[type="search"],
+.dark input[type="number"] {
+  color-scheme: dark;
+}
+
+/* Light Mode Select & Options defaults */
+html:not(.dark) select,
+html:not(.dark) option,
+html:not(.dark) optgroup {
+  color-scheme: light;
+  background-color: #ffffff;
+  color: #111827;
+}
+
+/* Print stylesheet */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  aside,
+  header,
+  .no-print {
+    display: none !important;
+  }
+  #report-paper {
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    min-height: auto !important;
+  }
+}

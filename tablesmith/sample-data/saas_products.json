@@ -1,0 +1,8 @@
+[
+  { "product": "云服务器 Pro", "category": "基础设施", "activeUsers": 12800, "mrr": 256000, "growthRate": "18%" },
+  { "product": "数据库托管", "category": "基础设施", "activeUsers": 8400, "mrr": 184000, "growthRate": "22%" },
+  { "product": "对象存储", "category": "存储与CDN", "activeUsers": 15600, "mrr": 98000, "growthRate": "14%" },
+  { "product": "CDN加速", "category": "存储与CDN", "activeUsers": 9200, "mrr": 112000, "growthRate": "16%" },
+  { "product": "AI模型推理API", "category": "人工智能", "activeUsers": 6300, "mrr": 340000, "growthRate": "65%" },
+  { "product": "数据仓库", "category": "大数据分析", "activeUsers": 4100, "mrr": 195000, "growthRate": "28%" }
+]

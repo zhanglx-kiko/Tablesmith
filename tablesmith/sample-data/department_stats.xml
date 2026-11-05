@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<report>
+  <row>
+    <department>研发部</department>
+    <headcount>45</headcount>
+    <budget>1800000</budget>
+    <completedProjects>12</completedProjects>
+  </row>
+  <row>
+    <department>市场部</department>
+    <headcount>28</headcount>
+    <budget>950000</budget>
+    <completedProjects>8</completedProjects>
+  </row>
+  <row>
+    <department>运营部</department>
+    <headcount>35</headcount>
+    <budget>720000</budget>
+    <completedProjects>15</completedProjects>
+  </row>
+  <row>
+    <department>销售部</department>
+    <headcount>52</headcount>
+    <budget>1400000</budget>
+    <completedProjects>24</completedProjects>
+  </row>
+  <row>
+    <department>客服部</department>
+    <headcount>20</headcount>
+    <budget>380000</budget>
+    <completedProjects>6</completedProjects>
+  </row>
+</report>
