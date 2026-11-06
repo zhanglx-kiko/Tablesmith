@@ -94,7 +94,7 @@ const DataSourceView: React.FC = () => {
   return (
     <div className="relative flex h-full flex-col bg-slate-50 dark:bg-[#0b0f19] text-gray-900 dark:text-gray-100">
       {importer.isDragging && (
-        <div className="pointer-events-none absolute inset-2 z-20 flex items-center justify-center rounded-xl border-2 border-dashed border-blue-500 bg-blue-50/80 dark:bg-blue-950/60 text-sm font-medium text-blue-600 dark:text-blue-300">
+        <div data-dragging className="pointer-events-none absolute inset-2 z-20 flex items-center justify-center rounded-xl border-2 border-dashed border-blue-500 bg-blue-50/80 dark:bg-blue-950/60 text-sm font-medium text-blue-600 dark:text-blue-300">
           松开以导入文件
         </div>
       )}

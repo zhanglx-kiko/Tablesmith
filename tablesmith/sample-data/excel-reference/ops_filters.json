@@ -1,0 +1,14 @@
+[
+  { "name": "a_gt_100", "column": "a", "criteria": ">100", "op": "greaterThan", "value": "100" },
+  { "name": "a_lt_0", "column": "a", "criteria": "<0", "op": "lessThan", "value": "0" },
+  { "name": "a_ge_1", "column": "a", "criteria": ">=1", "op": "greaterThanOrEqual", "value": "1" },
+  { "name": "a_le_0.1", "column": "a", "criteria": "<=0.1", "op": "lessThanOrEqual", "value": "0.1" },
+  { "name": "a_eq_1000", "column": "a", "criteria": "=1000", "op": "equals", "value": "1000" },
+  { "name": "a_ne_abc", "column": "a", "criteria": "<>abc", "op": "notEquals", "value": "abc" },
+  { "name": "a_contains_1", "column": "a", "criteria": "=*1*", "op": "contains", "value": "1" },
+  { "name": "a_not_contains_a", "column": "a", "criteria": "<>*a*", "op": "notContains", "value": "a" },
+  { "name": "a_empty", "column": "a", "criteria": "=", "op": "isEmpty", "value": "" },
+  { "name": "a_not_empty", "column": "a", "criteria": "<>", "op": "isNotEmpty", "value": "" },
+  { "name": "d_gt_jun30", "column": "d", "criteria": ">2024-06-30", "op": "greaterThan", "value": "2024-06-30" },
+  { "name": "d_le_jun30", "column": "d", "criteria": "<=2024-06-30", "op": "lessThanOrEqual", "value": "2024-06-30" }
+]

@@ -24,6 +24,7 @@ const FileDropZone: React.FC<FileDropZoneProps> = ({ importer }) => {
       role="button"
       tabIndex={0}
       aria-busy={busy}
+      data-dragging={isDragging || undefined}
       onClick={() => !busy && void pickFiles()}
       onKeyDown={(e) => {
         if (!busy && (e.key === 'Enter' || e.key === ' ')) {

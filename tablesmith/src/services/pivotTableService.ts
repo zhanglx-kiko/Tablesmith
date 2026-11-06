@@ -131,24 +131,16 @@ export function generatePivotTableWithMeta(sheet: SheetData, config: PivotConfig
   let sortedRowKeys = Array.from(matrix.keys());
 
   /**
-   * Cell value as Excel's pivot reads it: plain and formatted numbers ("1,200", "$30",
-   * "(5)") count, "12%" is 0.12, anything else is text and is skipped by sum / average /
-   * max / min.
+   * Aggregate like Excel: null means no value to show (the cell stays blank). Sum /
+   * average / max / min read numbers with parseNumericCell ("1,200", "$30", "(5)", "12%"
+   * as 0.12) and skip text.
    */
-  const numberOf = (v: string | number): number => {
-    if (typeof v === 'number') return v;
-    const n = parseNumericCell(v);
-    if (Number.isNaN(n)) return n;
-    return v.trim().endsWith('%') ? n / 100 : n;
-  };
-
-  /** Aggregate like Excel: null means no value to show (the cell stays blank). */
   const aggregate = (vals: (string | number)[]): number | null => {
     const filled = vals.filter((v) => String(v ?? '').trim() !== '');
     if (filled.length === 0) return null;
     if (aggType === 'count') return filled.length;
     if (aggType === 'distinct') return new Set(filled.map((v) => String(v).trim())).size;
-    const nums = filled.map(numberOf).filter((n) => !Number.isNaN(n));
+    const nums = filled.map(parseNumericCell).filter((n) => !Number.isNaN(n));
     if (nums.length === 0) return aggType === 'sum' ? 0 : null;
     switch (aggType) {
       case 'sum':

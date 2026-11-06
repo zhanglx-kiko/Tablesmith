@@ -100,8 +100,25 @@ async function launchDesktopApp({ exe = process.env.TABLESMITH_EXE || DEFAULT_EX
   }
 }
 
-/** Import files through the real Rust + worker pipeline, as a native drop would. */
+/**
+ * Import files through the real Rust + worker pipeline, as a native drop would.
+ * Right after launch the app may not have subscribed to drag-drop yet and the drop would
+ * be lost, so first wait for the subscription: a probe "over" event must mark the drop target
+ * (data-dragging). The probe is followed by "leave" so it leaves nothing behind.
+ */
 async function importPaths(page, paths) {
+  for (let i = 0; i < 40; i += 1) {
+    const ready = await page.evaluate(async () => {
+      const { emit } = window.__TAURI__.event;
+      await emit('tauri://drag-over', { position: { x: 400, y: 300 } });
+      await new Promise((r) => setTimeout(r, 100));
+      const shown = Boolean(document.querySelector('[data-dragging]'));
+      await emit('tauri://drag-leave', {});
+      return shown;
+    });
+    if (ready) break;
+    await new Promise((r) => setTimeout(r, 250));
+  }
   await page.evaluate(async (list) => {
     const { emit } = window.__TAURI__.event;
     await emit('tauri://drag-drop', { paths: list, position: { x: 400, y: 300 } });

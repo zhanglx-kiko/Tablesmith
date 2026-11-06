@@ -1,5 +1,6 @@
 import type { SheetData } from '../types';
-import { parseNumericCell } from '../utils/numberUtils';
+import { EXCEL_ERRORS, parseDateCell, parseNumericCell } from '../utils/numberUtils';
+import { formatNumber } from './import/cellText';
 
 /**
  * Keep only the given rows, carrying `display` along so it stays aligned with `rows`.
@@ -66,8 +67,30 @@ export interface ComputedColumnConfig {
   suffix?: string;
 }
 
+/** A plain number as Excel reads it from a CSV: sign, digits, exponent, "(5)" as -5. */
+const PLAIN_NUMBER_RE = /^(\()?([+-])?\s*(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?(\))?$/;
+
 /**
- * Remove duplicate rows.
+ * Cell text as Excel's Remove Duplicates compares it, which is the value Excel displays:
+ * plain numbers by value ("1" = "1.0" = "+1", "(5)" = "-5"), dates by date ("2024/1/31" =
+ * "2024-01-31"), other text ignoring case ("ABC" = "abc"). Numbers Excel shows with their
+ * own format stay apart ("1,000" vs "1000", "10%" vs "0.1"), as they do in Excel.
+ */
+function dedupeKey(v: string): string {
+  const text = v ?? '';
+  const m = PLAIN_NUMBER_RE.exec(text);
+  if (m && Boolean(m[1]) === Boolean(m[5]) && !(m[1] && m[2])) {
+    const n = Number(`${m[3]}${m[4] ?? ''}`);
+    // Excel shows "1e0" in scientific format, so it is not a duplicate of "1".
+    if (Number.isFinite(n)) return `${m[4] ? 'E' : '#'}${m[1] || m[2] === '-' ? -n : n}`;
+  }
+  const d = parseDateCell(text);
+  if (!Number.isNaN(d)) return `@${d}`;
+  return `"${text.toLowerCase()}`;
+}
+
+/**
+ * Remove duplicate rows like Excel's Remove Duplicates, keeping the first occurrence.
  * If keyColumns are provided, duplicates are checked only on those columns.
  */
 export function removeDuplicates(
@@ -84,7 +107,7 @@ export function removeDuplicates(
 
   sheet.rows.forEach((row, r) => {
     // JSON keeps cells distinct even when they contain any separator text.
-    const key = JSON.stringify(colIndices.map((i) => row[i] ?? ''));
+    const key = JSON.stringify(colIndices.map((i) => dedupeKey(row[i] ?? '')));
     if (!seen.has(key)) {
       seen.add(key);
       kept.push(r);
@@ -133,6 +156,20 @@ export function filterRows(
     return { result: sheet, matchCount: sheet.rows.length };
   }
 
+  /**
+   * Compare as numbers when both sides are numbers, else as dates when both are dates
+   * ("2024-06-30"). Anything else never matches a comparison.
+   */
+  const compare = (cell: string, target: string): number | null => {
+    const a = parseNumericCell(cell);
+    const b = parseNumericCell(target);
+    if (!Number.isNaN(a) && !Number.isNaN(b)) return a - b;
+    const da = parseDateCell(cell);
+    const db = parseDateCell(target);
+    if (!Number.isNaN(da) && !Number.isNaN(db)) return da - db;
+    return null;
+  };
+
   const kept: number[] = [];
   sheet.rows.forEach((row, r) => {
     const testCondition = (c: FilterCondition): boolean => {
@@ -156,24 +193,20 @@ export function filterRows(
         case 'isNotEmpty':
           return cellVal !== '';
         case 'greaterThan': {
-          const num = parseNumericCell(cellVal);
-          const target = parseNumericCell(targetVal);
-          return !isNaN(num) && !isNaN(target) && num > target;
+          const d = compare(cellVal, targetVal);
+          return d !== null && d > 0;
         }
         case 'lessThan': {
-          const num = parseNumericCell(cellVal);
-          const target = parseNumericCell(targetVal);
-          return !isNaN(num) && !isNaN(target) && num < target;
+          const d = compare(cellVal, targetVal);
+          return d !== null && d < 0;
         }
         case 'greaterThanOrEqual': {
-          const num = parseNumericCell(cellVal);
-          const target = parseNumericCell(targetVal);
-          return !isNaN(num) && !isNaN(target) && num >= target;
+          const d = compare(cellVal, targetVal);
+          return d !== null && d >= 0;
         }
         case 'lessThanOrEqual': {
-          const num = parseNumericCell(cellVal);
-          const target = parseNumericCell(targetVal);
-          return !isNaN(num) && !isNaN(target) && num <= target;
+          const d = compare(cellVal, targetVal);
+          return d !== null && d <= 0;
         }
         default:
           return true;
@@ -188,6 +221,40 @@ export function filterRows(
     result: selectRows(sheet, kept),
     matchCount: kept.length,
   };
+}
+
+/**
+ * An operand of an Excel formula: an empty cell is 0, TRUE / FALSE are 1 / 0, numbers
+ * (also "1,000", "$30", "(5)", "10%") are their value, an error value passes through,
+ * anything else (including a cell holding only spaces) is text, which is #VALUE!.
+ */
+function operand(v: string): number | string {
+  if (v === '') return 0;
+  const t = v.trim();
+  if (EXCEL_ERRORS.has(t.toUpperCase())) return t.toUpperCase();
+  const upper = t.toUpperCase();
+  if (upper === 'TRUE') return 1;
+  if (upper === 'FALSE') return 0;
+  const n = parseNumericCell(t);
+  return Number.isNaN(n) ? '#VALUE!' : n;
+}
+
+/**
+ * One arithmetic cell exactly like the Excel formula =A+B (=A-B, =A*B, =A/B): see
+ * `operand`; the first error wins, division by zero gives #DIV/0!. The result keeps full
+ * double precision; one beyond Excel's range is #NUM!.
+ */
+function calc(a: string, b: string, op: ComputedColumnConfig['operator']): string {
+  const x = operand(a);
+  if (typeof x === 'string') return x;
+  const y = operand(b);
+  if (typeof y === 'string') return y;
+  const r = op === '+' ? x + y : op === '-' ? x - y : op === '*' ? x * y : op === '/' ? (y === 0 ? NaN : x / y) : null;
+  if (r === null) return '';
+  if (Number.isNaN(r)) return '#DIV/0!';
+  if (!Number.isFinite(r) || Math.abs(r) > 9.99999999999999e307) return '#NUM!';
+  // Excel has no negative zero.
+  return formatNumber(r === 0 ? 0 : r);
 }
 
 /**
@@ -212,26 +279,7 @@ export function addComputedColumn(
     let computedVal = '';
 
     if (config.type === 'calc') {
-      const numA = parseNumericCell(valA);
-      const numB = parseNumericCell(valB);
-      if (!isNaN(numA) && !isNaN(numB)) {
-        switch (config.operator) {
-          case '+':
-            computedVal = String(Number((numA + numB).toFixed(4)));
-            break;
-          case '-':
-            computedVal = String(Number((numA - numB).toFixed(4)));
-            break;
-          case '*':
-            computedVal = String(Number((numA * numB).toFixed(4)));
-            break;
-          case '/':
-            computedVal = numB !== 0 ? String(Number((numA / numB).toFixed(4))) : '#DIV/0!';
-            break;
-          default:
-            computedVal = '';
-        }
-      }
+      computedVal = calc(valA, valB, config.operator);
     } else if (config.type === 'combine') {
       const sep = config.separator ?? ' ';
       computedVal = `${valA}${sep}${valB}`;
@@ -397,17 +445,18 @@ export function joinSheets(
     return { result: sheetA, stats: { matched: 0, unmatched: sheetA.rows.length, duplicateKeys: [] } };
   }
 
-  const bMap = new Map<string, string[]>();
+  // Key -> index of the first matching row in sheetB.
+  const bMap = new Map<string, number>();
   const counts = new Map<string, { key: string; count: number }>();
-  for (const rowB of sheetB.rows) {
+  sheetB.rows.forEach((rowB, bRow) => {
     const raw = String(rowB[idxB] ?? '');
     const key = joinKey(raw);
-    if (!key) continue;
-    if (!bMap.has(key)) bMap.set(key, rowB);
+    if (!key) return;
+    if (!bMap.has(key)) bMap.set(key, bRow);
     const c = counts.get(key);
     if (c) c.count += 1;
     else counts.set(key, { key: raw.trim(), count: 1 });
-  }
+  });
 
   // Combine headers (avoid duplicate names by suffixing SheetB's name)
   const bHeadersWithoutKey = sheetB.headers.filter((_, i) => i !== idxB);
@@ -417,19 +466,31 @@ export function joinSheets(
   ];
   const emptyBRow = bHeadersWithoutKey.map(() => '');
   const combinedRows: string[][] = [];
+  // Excel display text travels with its cell, from either table.
+  const keepDisplay = Boolean(sheetA.display || sheetB.display);
+  const combinedDisplay: (string | null)[][] = [];
+  const displayOf = (sheet: SheetData, r: number): (string | null)[] =>
+    sheet.headers.map((_, c) => sheet.display?.[r]?.[c] ?? null);
   let matched = 0;
-  for (const rowA of sheetA.rows) {
-    const matchedB = bMap.get(joinKey(String(rowA[idxA] ?? '')));
-    if (matchedB) {
+  sheetA.rows.forEach((rowA, r) => {
+    const bRow = bMap.get(joinKey(String(rowA[idxA] ?? '')));
+    if (bRow !== undefined) {
       matched += 1;
-      combinedRows.push([...rowA, ...matchedB.filter((_, i) => i !== idxB)]);
+      combinedRows.push([...rowA, ...sheetB.rows[bRow].filter((_, i) => i !== idxB)]);
+      if (keepDisplay) combinedDisplay.push([...displayOf(sheetA, r), ...displayOf(sheetB, bRow).filter((_, i) => i !== idxB)]);
     } else if (joinType === 'left') {
       combinedRows.push([...rowA, ...emptyBRow]);
+      if (keepDisplay) combinedDisplay.push([...displayOf(sheetA, r), ...emptyBRow.map(() => null)]);
     }
-  }
+  });
 
   return {
-    result: { name: `${sheetA.name}_JOIN_${sheetB.name}`, headers: combinedHeaders, rows: combinedRows },
+    result: {
+      name: `${sheetA.name}_JOIN_${sheetB.name}`,
+      headers: combinedHeaders,
+      rows: combinedRows,
+      ...(keepDisplay ? { display: combinedDisplay } : {}),
+    },
     stats: {
       matched,
       unmatched: sheetA.rows.length - matched,
@@ -444,20 +505,24 @@ export function joinSheets(
 export function unionSheets(sheetA: SheetData, sheetB: SheetData): SheetData {
   // Combined unique headers in order
   const allHeaders = Array.from(new Set([...sheetA.headers, ...sheetB.headers]));
-
-  const mapRowToHeaders = (sheet: SheetData, row: string[]) => {
-    return allHeaders.map((header) => {
+  const place = <T>(sheet: SheetData, row: T[] | undefined, empty: T): T[] =>
+    allHeaders.map((header) => {
       const idx = sheet.headers.indexOf(header);
-      return idx >= 0 && row[idx] !== undefined ? row[idx] : '';
+      const v = idx >= 0 ? row?.[idx] : undefined;
+      return v === undefined ? empty : v;
     });
-  };
 
-  const rowsA = sheetA.rows.map((r) => mapRowToHeaders(sheetA, r));
-  const rowsB = sheetB.rows.map((r) => mapRowToHeaders(sheetB, r));
-
-  return {
+  const out: SheetData = {
     name: `${sheetA.name}_拼接_${sheetB.name}`,
     headers: allHeaders,
-    rows: [...rowsA, ...rowsB],
+    rows: [...sheetA.rows.map((r) => place(sheetA, r, '')), ...sheetB.rows.map((r) => place(sheetB, r, ''))],
   };
+  // Excel display text travels with its cell, from either table.
+  if (sheetA.display || sheetB.display) {
+    out.display = [
+      ...sheetA.rows.map((_, r) => place<string | null>(sheetA, sheetA.display?.[r], null)),
+      ...sheetB.rows.map((_, r) => place<string | null>(sheetB, sheetB.display?.[r], null)),
+    ];
+  }
+  return out;
 }
