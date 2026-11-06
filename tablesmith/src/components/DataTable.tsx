@@ -8,7 +8,7 @@ import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 import type { SheetData } from '../types';
 import { useDataStore, getIsDark } from '../store/useDataStore';
-import { compareCellsNumeric } from '../utils/numberUtils';
+import { compareCellsNumeric, parseNumericCell } from '../utils/numberUtils';
 import { looksNumeric } from '../services/import/cellText';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -38,6 +38,8 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData }) => {
   const theme = useDataStore((s) => s.theme);
   const tableZoom = useDataStore((s) => s.tableZoom);
   const setTableZoom = useDataStore((s) => s.setTableZoom);
+  const valueMode = useDataStore((s) => s.valueMode);
+  const setValueMode = useDataStore((s) => s.setValueMode);
   const isDark = getIsDark(theme);
   /** Rows left after column filters; null when no filter is active. */
   const [filteredCount, setFilteredCount] = useState<number | null>(null);
@@ -55,30 +57,65 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData }) => {
     }
   }, [tableZoom]);
 
+  const hasDisplay = Boolean(sheetData.display);
+  const showExcel = valueMode === 'excel' && hasDisplay;
+
   const columnDefs = useMemo<ColDef[]>(
     () =>
-      sheetData.headers.map((header, i) => ({
+      sheetData.headers.map((header, i) => {
+        const numeric = isNumericColumn(sheetData.rows, i);
+        // `r${i}` is the raw value, `d${i}` Excel's text (empty when identical to raw).
         // Keyed by index: AG Grid reads dots in `field` as nested paths ("address.city").
-        field: `c${i}`,
-        headerName: header,
-        // Right-align numeric cells only; the `rightAligned` type would also flip the header
-        // and move the filter button to the left.
-        cellClass: isNumericColumn(sheetData.rows, i) ? 'ag-right-aligned-cell' : undefined,
-        sortable: true,
-        filter: true,
-        resizable: true,
-        minWidth: 105,
-        comparator: compareCellsNumeric,
-      })),
-    [sheetData.headers, sheetData.rows],
+        const shown = (data: Record<string, string> | undefined): string => {
+          if (!data) return '';
+          const raw = data[`r${i}`] ?? '';
+          return showExcel ? data[`d${i}`] || raw : raw;
+        };
+        return {
+          colId: `c${i}`,
+          headerName: header,
+          valueGetter: (p) => shown(p.data),
+          // Hover shows the other form when it differs.
+          tooltipValueGetter: (p) => {
+            const data = p.data as Record<string, string> | undefined;
+            const disp = data?.[`d${i}`];
+            if (!data || !disp) return undefined;
+            return showExcel ? `原始值：${data[`r${i}`] ?? ''}` : `Excel 显示：${disp}`;
+          },
+          // Right-align numeric cells only; the `rightAligned` type would also flip the header
+          // and move the filter button to the left.
+          cellClass: numeric ? 'ag-right-aligned-cell' : undefined,
+          // Sorting always uses the raw value, never the formatted text.
+          comparator: (_a, _b, nodeA, nodeB) =>
+            compareCellsNumeric(nodeA.data?.[`r${i}`] ?? '', nodeB.data?.[`r${i}`] ?? ''),
+          // Numeric columns compare raw numbers (> 0.6 matches 61.4%); text columns match
+          // the text on screen, like Excel's AutoFilter.
+          ...(numeric
+            ? {
+                filter: 'agNumberColumnFilter',
+                filterValueGetter: (p: { data?: Record<string, string> }) => {
+                  const n = parseNumericCell(p.data?.[`r${i}`] ?? '');
+                  return Number.isNaN(n) ? null : n;
+                },
+              }
+            : { filter: 'agTextColumnFilter' }),
+          sortable: true,
+          resizable: true,
+          minWidth: 105,
+        } satisfies ColDef;
+      }),
+    [sheetData.headers, sheetData.rows, showExcel],
   );
 
   const rowData = useMemo(
     () =>
       sheetData.rows.map((row, idx) => {
         const obj: Record<string, string> = { __rowId: `row_${idx}` };
+        const disp = sheetData.display?.[idx];
         sheetData.headers.forEach((_, i) => {
-          obj[`c${i}`] = row[i] ?? '';
+          obj[`r${i}`] = row[i] ?? '';
+          const d = disp?.[i];
+          if (d) obj[`d${i}`] = d;
         });
         return obj;
       }),
@@ -164,6 +201,8 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData }) => {
           localeText={LOCALE_TEXT}
           onGridReady={handleGridReady}
           onFilterChanged={handleFilterChanged}
+          tooltipShowDelay={400}
+          tooltipInteraction
           animateRows
           suppressCellFocus
           domLayout="normal"
@@ -193,12 +232,43 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData }) => {
             </span>
           )}
           <span className="text-gray-300 dark:text-gray-700">|</span>
-          <span className="hidden md:inline text-[11px] text-gray-400 dark:text-gray-500">
-            支持拖拽/双击列边界微调列宽
+          <span className="hidden md:inline text-[11px] text-gray-400 dark:text-gray-500" data-testid="value-semantics">
+            {hasDisplay ? '排序、数值筛选和计算按原始值；文本筛选按单元格显示的文字' : '支持拖拽/双击列边界微调列宽'}
           </span>
         </div>
 
         <div className="flex items-center gap-2">
+          {hasDisplay && (
+            <div
+              role="group"
+              aria-label="单元格显示方式"
+              data-testid="value-mode"
+              className="flex items-center rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-0.5 text-[11px] font-medium text-gray-500 dark:text-gray-400 shadow-2xs"
+            >
+              {(
+                [
+                  ['excel', 'Excel 格式', '按 Excel 中的格式显示（如 $28,975,558、61.4%），悬停查看原始值'],
+                  ['raw', '原始值', '显示文件里存的原始值，悬停查看 Excel 格式'],
+                ] as const
+              ).map(([mode, label, hint]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  aria-pressed={valueMode === mode}
+                  onClick={() => setValueMode(mode)}
+                  title={hint}
+                  className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                    valueMode === mode
+                      ? 'bg-blue-50 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 font-semibold'
+                      : 'hover:text-gray-700 dark:hover:text-gray-200'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* 单元格缩放控制 */}
           <div className="flex items-center rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-0.5 shadow-2xs">
             <button

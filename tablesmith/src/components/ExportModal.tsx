@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Download, X, FolderOpen, Loader2, FileSpreadsheet, Image as ImageIcon, FileText } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
-import { resolveDefaultExportDir, setLastExportDir } from '../services/fileService';
+import { resolveDefaultExportDir, setLastExportDir, type ExportContent } from '../services/fileService';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -9,8 +9,10 @@ interface ExportModalProps {
   defaultFileName: string;
   format: string;
   onClose: () => void;
-  onConfirm: (customFileName: string, targetDirectory?: string) => Promise<void> | void;
+  onConfirm: (customFileName: string, targetDirectory?: string, content?: ExportContent) => Promise<void> | void;
   isExporting?: boolean;
+  /** Show the raw / Excel-text choice (sheets that carry Excel number formats). */
+  offerContentChoice?: boolean;
 }
 
 const ExportModal: React.FC<ExportModalProps> = ({
@@ -21,8 +23,10 @@ const ExportModal: React.FC<ExportModalProps> = ({
   onClose,
   onConfirm,
   isExporting = false,
+  offerContentChoice = false,
 }) => {
   const [fileName, setFileName] = useState('');
+  const [content, setContent] = useState<ExportContent>('raw');
   const [targetDirectory, setTargetDirectory] = useState('');
   const [isResolvingDir, setIsResolvingDir] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -30,6 +34,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setFileName(defaultFileName);
+      setContent('raw');
       let active = true;
       setIsResolvingDir(true);
 
@@ -87,7 +92,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
     e?.preventDefault();
     if (isExporting) return;
     const finalName = fileName.trim() || defaultFileName;
-    onConfirm(finalName, targetDirectory || undefined);
+    onConfirm(finalName, targetDirectory || undefined, offerContentChoice ? content : 'raw');
   };
 
   const getFormatIcon = () => {
@@ -174,6 +179,44 @@ const ExportModal: React.FC<ExportModalProps> = ({
               </button>
             </div>
           </div>
+
+          {offerContentChoice && (
+            <fieldset data-testid="export-content">
+              <legend className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">导出内容</legend>
+              <div className="space-y-1.5 text-xs text-gray-700 dark:text-gray-200">
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="export-content"
+                    checked={content === 'raw'}
+                    onChange={() => setContent('raw')}
+                    className="mt-0.5 accent-blue-600"
+                  />
+                  <span>
+                    原始值
+                    <span className="block text-[11px] text-gray-500 dark:text-gray-400">
+                      文件里存的值，数字保留完整精度，适合继续计算
+                    </span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="export-content"
+                    checked={content === 'display'}
+                    onChange={() => setContent('display')}
+                    className="mt-0.5 accent-blue-600"
+                  />
+                  <span>
+                    Excel 显示的文字
+                    <span className="block text-[11px] text-gray-500 dark:text-gray-400">
+                      如 $28,975,558、61.4%，导出后是文本，不能再参与计算
+                    </span>
+                  </span>
+                </label>
+              </div>
+            </fieldset>
+          )}
 
           {/* Footer Actions */}
           <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-gray-100 dark:border-gray-800/80">

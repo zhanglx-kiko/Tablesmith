@@ -21,6 +21,18 @@ export interface RecentHistoryItem {
 const RECENT_HISTORY_KEY = 'tablesmith_recent_history';
 const THEME_KEY = 'tablesmith_theme_mode';
 const TABLE_ZOOM_KEY = 'tablesmith_table_zoom';
+const VALUE_MODE_KEY = 'tablesmith_value_mode';
+
+/** What table cells show: Excel's formatted text (default) or the stored raw value. */
+export type ValueMode = 'excel' | 'raw';
+
+function loadInitialValueMode(): ValueMode {
+  try {
+    return localStorage.getItem(VALUE_MODE_KEY) === 'raw' ? 'raw' : 'excel';
+  } catch {
+    return 'excel';
+  }
+}
 
 function loadInitialTableZoom(): number {
   try {
@@ -130,6 +142,7 @@ interface DataStoreState {
   theme: ThemeMode;
   toasts: ToastItem[];
   tableZoom: number;
+  valueMode: ValueMode;
   isInitialized: boolean;
 
   initWorkspace: () => Promise<void>;
@@ -145,6 +158,7 @@ interface DataStoreState {
   clearRecentHistory: () => void;
   setTheme: (theme: ThemeMode) => void;
   setTableZoom: (zoom: number) => void;
+  setValueMode: (mode: ValueMode) => void;
   showToast: (toast: {
     type?: 'success' | 'error' | 'info';
     title: string;
@@ -166,6 +180,7 @@ export const useDataStore = create<DataStoreState>((set, get) => ({
   recentHistory: loadInitialHistory(),
   theme: loadInitialTheme(),
   tableZoom: loadInitialTableZoom(),
+  valueMode: loadInitialValueMode(),
   toasts: [],
   isInitialized: false,
 
@@ -320,6 +335,15 @@ export const useDataStore = create<DataStoreState>((set, get) => ({
   clearRecentHistory: () => {
     persistHistory([]);
     set({ recentHistory: [] });
+  },
+
+  setValueMode: (mode: ValueMode) => {
+    set({ valueMode: mode });
+    try {
+      localStorage.setItem(VALUE_MODE_KEY, mode);
+    } catch {
+      // Preference only; the table still switches for this session.
+    }
   },
 
   setTableZoom: (zoom: number) => {

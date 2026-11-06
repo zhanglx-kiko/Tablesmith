@@ -12,7 +12,7 @@ import DataTable from '../components/DataTable';
 import ExportModal from '../components/ExportModal';
 import FileTypeIcon from '../components/FileTypeIcon';
 import ImportNotes from '../components/ImportNotes';
-import { exportFile } from '../services/fileService';
+import { exportFile, type ExportContent } from '../services/fileService';
 import { useFileImport } from '../hooks/useFileImport';
 
 const DataSourceView: React.FC = () => {
@@ -38,11 +38,11 @@ const DataSourceView: React.FC = () => {
     ? `${activeFile.fileName.replace(/\.[^/.]+$/, '')}_${activeSheet.name}`
     : '表格导出';
 
-  const handleConfirmExport = async (customFileName: string, targetDirectory?: string) => {
+  const handleConfirmExport = async (customFileName: string, targetDirectory?: string, content: ExportContent = 'raw') => {
     if (!activeSheet) return;
     setIsExporting(true);
     try {
-      const result = await exportFile(activeSheet, 'xlsx', customFileName, targetDirectory);
+      const result = await exportFile(activeSheet, 'xlsx', customFileName, targetDirectory, content);
       if (result.saved) {
         showToast({
           type: 'success',
@@ -221,6 +221,7 @@ const DataSourceView: React.FC = () => {
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
         onConfirm={handleConfirmExport}
+        offerContentChoice={Boolean(activeSheet?.display)}
         defaultFileName={defaultExportName}
         isExporting={isExporting}
         title="导出当前工作表 (Excel)"

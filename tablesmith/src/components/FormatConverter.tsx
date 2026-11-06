@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { CheckCircle2, AlertCircle, Loader2, Download } from 'lucide-react';
 import { useDataStore } from '../store/useDataStore';
-import { exportFile } from '../services/fileService';
+import { exportFile, type ExportContent } from '../services/fileService';
 import type { ExportFormat } from '../types';
 import ExportModal from './ExportModal';
 
@@ -52,13 +52,13 @@ const FormatConverter: React.FC<FormatConverterProps> = ({ onConvert }) => {
     setIsExportModalOpen(true);
   };
 
-  const handleConfirmConvert = async (customFileName: string, targetDirectory?: string) => {
+  const handleConfirmConvert = async (customFileName: string, targetDirectory?: string, content: ExportContent = 'raw') => {
     if (!activeFile || !activeSheet) return;
     setStatus('loading');
     setErrorMsg('');
 
     try {
-      const result = await exportFile(activeSheet, targetFormat, customFileName, targetDirectory);
+      const result = await exportFile(activeSheet, targetFormat, customFileName, targetDirectory, content);
       if (result.saved) {
         setStatus('success');
         showToast({
@@ -232,6 +232,7 @@ const FormatConverter: React.FC<FormatConverterProps> = ({ onConvert }) => {
         isExporting={status === 'loading'}
         onClose={() => setIsExportModalOpen(false)}
         onConfirm={handleConfirmConvert}
+        offerContentChoice={Boolean(activeSheet?.display)}
       />
     </div>
   );

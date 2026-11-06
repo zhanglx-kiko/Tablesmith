@@ -6,7 +6,6 @@ import * as YAML from 'js-yaml';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
 import type { SheetData, ExportFormat } from '../types';
-import { parseNumericCell } from '../utils/numberUtils';
 import {
   ImportError,
   SUPPORTED_EXTENSIONS,
@@ -16,6 +15,7 @@ import {
   type ReadFileResponse,
 } from './import';
 import { parseBytesInWorker, parsePayloadInWorker } from './import/client';
+import { formatNumber } from './import/cellText';
 
 export { ImportError, SUPPORTED_EXTENSIONS, type ImportResult } from './import';
 
@@ -228,17 +228,59 @@ export async function importFromClipboard(): Promise<ImportResult> {
 /**
  * Export a sheet to the specified format and write it to disk.
  */
-export async function exportFile(
-  data: SheetData,
-  format: ExportFormat,
-  fileName: string,
-  targetDirectory?: string,
-): Promise<SaveResult> {
+/** What an export writes: stored raw values (default) or the text shown in Excel format. */
+export type ExportContent = 'raw' | 'display';
+
+/** Cell values to export; `display` falls back to raw where a cell has no Excel text. */
+export function exportRows(data: SheetData, content: ExportContent): string[][] {
+  if (content === 'raw' || !data.display) return data.rows;
+  return data.rows.map((row, r) => row.map((v, c) => data.display?.[r]?.[c] || v));
+}
+
+/**
+ * The number a cell's text exactly is, or null. Only text that reads back as the very
+ * same number qualifies, so exports never alter a value: "00892", "61.4%", "$1,200" and
+ * 16-digit ids such as "2026110488921001" (beyond Excel's 15 digits) stay text.
+ */
+export function exactNumber(v: string): number | null {
+  if (!/^-?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?$/i.test(v)) return null;
+  const n = Number(v);
+  // Same writer as the importer, so whatever import produced is accepted exactly.
+  if (!Number.isFinite(n) || formatNumber(n) !== v) return null;
+  // Integers longer than Excel's 15 digits are identifiers, not quantities. Decimals keep
+  // their full stored precision (45351.57326388889 came from a number cell).
+  const isInteger = !/[.e]/i.test(v);
+  return isInteger && v.replace(/^-/, '').length > 15 ? null : n;
+}
+
+/**
+ * A sheet name Excel accepts: at most 31 characters, none of : \ / ? * [ ], no leading or
+ * trailing apostrophe, not empty and not the reserved "History". Only the sheet tab name
+ * changes; cell values are untouched.
+ */
+export function excelSheetName(name: string): string {
+  let out = name.replace(/[:\\/?*[\]]/g, '_').replace(/^'+|'+$/g, '').trim();
+  if (out === '' || out.toLowerCase() === 'history') out = out === '' ? 'Sheet1' : `${out}_1`;
+  if (out.length <= 31) return out;
+  // Excel counts UTF-16 code units (an emoji is 2); never split a surrogate pair.
+  let cut = out.slice(0, 31);
+  if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1);
+  return cut.replace(/'+$/, '');
+}
+
+export interface BuiltExport {
+  extension: string;
+  payload: string | Uint8Array;
+}
+
+/** Serialise a sheet in the given format (pure; `exportFile` adds the save dialog). */
+export function buildExport(data: SheetData, format: ExportFormat, content: ExportContent = 'raw'): BuiltExport {
   let textContent: string | null = null;
   let binaryContent: Uint8Array | null = null;
   let extension = format as string;
 
-  const records = data.rows.map((row) => {
+  const rows = exportRows(data, content);
+  const records = rows.map((row) => {
     const obj: Record<string, string> = {};
     data.headers.forEach((h, i) => {
       obj[h] = row[i] ?? '';
@@ -256,9 +298,9 @@ export async function exportFile(
       break;
     }
     case 'xlsx': {
-      const ws = XLSX.utils.json_to_sheet(records);
+      const ws = XLSX.utils.aoa_to_sheet([data.headers, ...rows.map((row) => row.map((v) => exactNumber(v) ?? v))]);
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, data.name || 'Sheet1');
+      XLSX.utils.book_append_sheet(wb, ws, excelSheetName(data.name));
       const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
       binaryContent = new Uint8Array(buf);
       break;
@@ -280,12 +322,12 @@ export async function exportFile(
     case 'sql': {
       const tableName = (data.name || 'table_data').replace(/[^a-zA-Z0-9_]/g, '_') || 'table_data';
       const cols = data.headers.map((h) => `\`${h.replace(/`/g, '')}\``).join(', ');
-      const insertStatements = data.rows.map((row) => {
+      const insertStatements = rows.map((row) => {
         const values = row
           .map((val) => {
             if (val === null || val === undefined || val === '') return 'NULL';
-            const num = parseNumericCell(val);
-            if (!isNaN(num) && !/[a-zA-Z\s]/.test(String(val))) return String(num);
+            const num = exactNumber(val);
+            if (num !== null) return val;
             return `'${String(val).replace(/'/g, "''")}'`;
           })
           .join(', ');
@@ -299,6 +341,16 @@ export async function exportFile(
     }
   }
 
-  const content = binaryContent ?? textContent ?? '';
-  return saveExport(`${fileName}.${extension}`, content, { name: format.toUpperCase(), extensions: [extension] }, targetDirectory);
+  return { extension, payload: binaryContent ?? textContent ?? '' };
+}
+
+export async function exportFile(
+  data: SheetData,
+  format: ExportFormat,
+  fileName: string,
+  targetDirectory?: string,
+  content: ExportContent = 'raw',
+): Promise<SaveResult> {
+  const { extension, payload } = buildExport(data, format, content);
+  return saveExport(`${fileName}.${extension}`, payload, { name: format.toUpperCase(), extensions: [extension] }, targetDirectory);
 }

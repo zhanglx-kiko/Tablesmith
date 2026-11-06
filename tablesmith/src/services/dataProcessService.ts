@@ -1,6 +1,41 @@
 import type { SheetData } from '../types';
 import { parseNumericCell } from '../utils/numberUtils';
 
+/**
+ * Keep only the given rows, carrying `display` along so it stays aligned with `rows`.
+ * Every operation that drops or reorders rows must go through this.
+ */
+export function selectRows(sheet: SheetData, indices: number[]): SheetData {
+  const out: SheetData = { name: sheet.name, headers: sheet.headers, rows: indices.map((i) => sheet.rows[i]) };
+  if (sheet.display) out.display = indices.map((i) => sheet.display?.[i] ?? []);
+  return out;
+}
+
+/**
+ * Replace raw values. Any cell whose raw value changes loses its display text, since the
+ * Excel rendering described the old value (masked or trimmed data must never show through).
+ */
+export function withRows(sheet: SheetData, rows: string[][]): SheetData {
+  const out: SheetData = { name: sheet.name, headers: sheet.headers, rows };
+  if (sheet.display) {
+    out.display = rows.map((row, r) =>
+      row.map((v, c) => (v === sheet.rows[r]?.[c] ? (sheet.display?.[r]?.[c] ?? null) : null)),
+    );
+  }
+  return out;
+}
+
+/** Keep the given columns (by index, in order), for headers, rows and display alike. */
+export function selectColumns(sheet: SheetData, keep: number[]): SheetData {
+  const out: SheetData = {
+    name: sheet.name,
+    headers: keep.map((i) => sheet.headers[i]),
+    rows: sheet.rows.map((row) => keep.map((i) => row[i] ?? '')),
+  };
+  if (sheet.display) out.display = sheet.display.map((row) => keep.map((i) => row[i] ?? null));
+  return out;
+}
+
 export type FilterOperator =
   | 'equals'
   | 'notEquals'
@@ -45,22 +80,20 @@ export function removeDuplicates(
       : sheet.headers.map((_, i) => i);
 
   const seen = new Set<string>();
-  const newRows: string[][] = [];
-  let removedCount = 0;
+  const kept: number[] = [];
 
-  for (const row of sheet.rows) {
-    const key = colIndices.map((i) => row[i] ?? '').join('___@@@___');
-    if (seen.has(key)) {
-      removedCount++;
-    } else {
+  sheet.rows.forEach((row, r) => {
+    // JSON keeps cells distinct even when they contain any separator text.
+    const key = JSON.stringify(colIndices.map((i) => row[i] ?? ''));
+    if (!seen.has(key)) {
       seen.add(key);
-      newRows.push(row);
+      kept.push(r);
     }
-  }
+  });
 
   return {
-    result: { ...sheet, rows: newRows },
-    removedCount,
+    result: selectRows(sheet, kept),
+    removedCount: sheet.rows.length - kept.length,
   };
 }
 
@@ -68,12 +101,13 @@ export function removeDuplicates(
  * Remove rows where every cell is empty or only whitespace.
  */
 export function removeEmptyRows(sheet: SheetData): { result: SheetData; removedCount: number } {
-  const newRows = sheet.rows.filter((row) =>
-    row.some((cell) => cell !== null && cell !== undefined && cell.trim() !== ''),
-  );
+  const kept: number[] = [];
+  sheet.rows.forEach((row, r) => {
+    if (row.some((cell) => cell !== null && cell !== undefined && cell.trim() !== '')) kept.push(r);
+  });
   return {
-    result: { ...sheet, rows: newRows },
-    removedCount: sheet.rows.length - newRows.length,
+    result: selectRows(sheet, kept),
+    removedCount: sheet.rows.length - kept.length,
   };
 }
 
@@ -84,7 +118,7 @@ export function trimWhitespace(sheet: SheetData): SheetData {
   const newRows = sheet.rows.map((row) =>
     row.map((cell) => (typeof cell === 'string' ? cell.trim() : cell)),
   );
-  return { ...sheet, rows: newRows };
+  return withRows(sheet, newRows);
 }
 
 /**
@@ -99,7 +133,8 @@ export function filterRows(
     return { result: sheet, matchCount: sheet.rows.length };
   }
 
-  const newRows = sheet.rows.filter((row) => {
+  const kept: number[] = [];
+  sheet.rows.forEach((row, r) => {
     const testCondition = (c: FilterCondition): boolean => {
       const colIdx = sheet.headers.indexOf(c.column);
       if (colIdx < 0) return true;
@@ -145,14 +180,13 @@ export function filterRows(
       }
     };
 
-    return matchType === 'all'
-      ? conditions.every(testCondition)
-      : conditions.some(testCondition);
+    const hit = matchType === 'all' ? conditions.every(testCondition) : conditions.some(testCondition);
+    if (hit) kept.push(r);
   });
 
   return {
-    result: { ...sheet, rows: newRows },
-    matchCount: newRows.length,
+    result: selectRows(sheet, kept),
+    matchCount: kept.length,
   };
 }
 
@@ -210,11 +244,9 @@ export function addComputedColumn(
     return [...row, computedVal];
   });
 
-  return {
-    ...sheet,
-    headers: newHeaders,
-    rows: newRows,
-  };
+  const out: SheetData = { name: sheet.name, headers: newHeaders, rows: newRows };
+  if (sheet.display) out.display = sheet.display.map((row) => [...row, null]);
+  return out;
 }
 
 /**
@@ -222,23 +254,8 @@ export function addComputedColumn(
  */
 export function deleteColumns(sheet: SheetData, colsToDelete: string[]): SheetData {
   const deleteSet = new Set(colsToDelete);
-  const keepIndices: number[] = [];
-  const newHeaders: string[] = [];
-
-  sheet.headers.forEach((h, i) => {
-    if (!deleteSet.has(h)) {
-      keepIndices.push(i);
-      newHeaders.push(h);
-    }
-  });
-
-  const newRows = sheet.rows.map((row) => keepIndices.map((i) => row[i] ?? ''));
-
-  return {
-    ...sheet,
-    headers: newHeaders,
-    rows: newRows,
-  };
+  const keepIndices = sheet.headers.flatMap((h, i) => (deleteSet.has(h) ? [] : [i]));
+  return selectColumns(sheet, keepIndices);
 }
 
 // ---------------- 数据脱敏 (Data Masking) ----------------
@@ -330,8 +347,9 @@ export function maskColumnData(
     return updatedRow;
   });
 
+  // withRows clears the display of every masked cell, so the original never shows.
   return {
-    result: { ...sheet, rows: newRows },
+    result: withRows(sheet, newRows),
     maskedCount,
   };
 }
