@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Sparkles,
@@ -23,8 +23,20 @@ import {
 import { useDataStore } from '../store/useDataStore';
 import DataTable from '../components/DataTable';
 import ExportModal from '../components/ExportModal';
+import StepsPanel, { type AppliedStep, type CarriedSteps } from '../components/StepsPanel';
+import { open } from '@tauri-apps/plugin-dialog';
+import { invoke } from '@tauri-apps/api/core';
+import type { ReadFileResponse } from '../services/import';
 import type { SheetData } from '../types';
-import { exportFile } from '../services/fileService';
+import { exportFile, saveExport } from '../services/fileService';
+import {
+  RecipeError,
+  describeStep,
+  parseRecipe,
+  runRecipe,
+  serializeRecipe,
+  type RecipeStep,
+} from '../services/recipeService';
 import {
   removeDuplicates,
   removeEmptyRows,
@@ -61,10 +73,90 @@ const ProcessView: React.FC = () => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isConfirmOverwriteOpen, setIsConfirmOverwriteOpen] = useState(false);
 
-  // Sync working sheet when selected file/sheet changes
+  /** Steps applied to workingSheet since it was last reset, oldest first. */
+  const [steps, setSteps] = useState<AppliedStep[]>([]);
+  const [carried, setCarried] = useState<CarriedSteps | null>(null);
+  const sheetKeyRef = useRef(`${activeFileIndex}:${activeSheetIndex}`);
+  /** Latest steps, read when the sheet changes (state updaters must stay pure). */
+  const stepsRef = useRef<AppliedStep[]>([]);
   useEffect(() => {
+    stepsRef.current = steps;
+  }, [steps]);
+
+  // Sync working sheet when selected file/sheet changes. Switching to another sheet
+  // offers the recorded steps for replay there; saving over the same sheet just bakes
+  // them in.
+  useEffect(() => {
+    const key = `${activeFileIndex}:${activeSheetIndex}`;
+    const prevKey = sheetKeyRef.current;
+    sheetKeyRef.current = key;
+    const prev = stepsRef.current;
+    if (key !== prevKey && prev.length > 0 && prev.every((x) => x.step !== null)) {
+      const [f, sh] = prevKey.split(':').map(Number);
+      setCarried({ from: files[f]?.sheets[sh]?.name ?? '上一个工作表', steps: prev.map((x) => x.step as RecipeStep) });
+    }
+    setSteps([]);
     setWorkingSheet(originalSheet);
   }, [originalSheet]);
+
+  /** Show a step's result and add it to the step list. */
+  const record = (step: RecipeStep | null, result: SheetData, label?: string) => {
+    if (!workingSheet) return;
+    setSteps((prev) => [
+      ...prev,
+      { step, label: label ?? (step ? describeStep(step) : ''), rowsBefore: workingSheet.rows.length, rowsAfter: result.rows.length, sheet: result },
+    ]);
+    setWorkingSheet(result);
+  };
+
+  const handleUndoStep = () => {
+    setSteps((prev) => {
+      const next = prev.slice(0, -1);
+      setWorkingSheet(next.length ? next[next.length - 1].sheet : originalSheet);
+      showToast(prev.length ? `已撤销：${prev[prev.length - 1].label}` : '没有可撤销的步骤');
+      return next;
+    });
+  };
+
+  /** Run recipe steps on the current table, appending each to the step list. */
+  const replaySteps = (recipeSteps: RecipeStep[], source: string) => {
+    if (!workingSheet) return;
+    try {
+      const { log } = runRecipe(workingSheet, recipeSteps);
+      setSteps((prev) => [
+        ...prev,
+        ...log.map((l) => ({ step: l.step, label: describeStep(l.step), rowsBefore: l.rowsBefore, rowsAfter: l.rowsAfter, sheet: l.sheet })),
+      ]);
+      setWorkingSheet(log[log.length - 1]?.sheet ?? workingSheet);
+      showGlobalToast({ type: 'success', title: `已按${source}执行 ${log.length} 个步骤`, message: `${workingSheet.rows.length} 行 → ${log[log.length - 1]?.rowsAfter ?? workingSheet.rows.length} 行` });
+    } catch (err) {
+      showGlobalToast({ type: 'error', title: '无法执行这些步骤', message: err instanceof RecipeError ? `${err.message}。当前表没有被修改。` : String(err) });
+    }
+  };
+
+  const handleSaveSteps = async () => {
+    if (!workingSheet || !originalSheet || steps.length === 0 || steps.some((x) => x.step === null)) return;
+    const recipe = { version: 1 as const, name: `${originalSheet.name} 处理步骤`, sourceHeaders: originalSheet.headers, steps: steps.map((x) => x.step as RecipeStep) };
+    try {
+      const fileName = `${originalSheet.name.replace(/[\\/:*?"<>|]/g, '_')}_处理步骤.tablesmith-steps.json`;
+      const res = await saveExport(fileName, serializeRecipe(recipe), { name: '表匠处理步骤', extensions: ['json'] });
+      if (res.saved) showGlobalToast({ type: 'success', title: `已保存 ${steps.length} 个步骤`, message: `已保存至: ${res.path ?? res.fileName}`, path: res.path });
+    } catch (err) {
+      showGlobalToast({ type: 'error', title: '保存步骤失败', message: err instanceof Error ? err.message : String(err) });
+    }
+  };
+
+  const handleLoadSteps = async () => {
+    const picked = await open({ multiple: false, directory: false, title: '选择处理步骤文件', filters: [{ name: '表匠处理步骤', extensions: ['json'] }] });
+    if (!picked || typeof picked !== 'string') return;
+    try {
+      const response = await invoke<ReadFileResponse>('read_file_data', { path: picked });
+      if (response.kind !== 'text') throw new RecipeError('不是表匠的处理步骤文件', -1);
+      replaySteps(parseRecipe(response.text).steps, '步骤文件');
+    } catch (err) {
+      showGlobalToast({ type: 'error', title: '无法读取步骤文件', message: err instanceof Error ? err.message : String(err) });
+    }
+  };
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -78,21 +170,21 @@ const ProcessView: React.FC = () => {
     if (!workingSheet) return;
     const keyCols = dedupCol === '__ALL__' ? undefined : [dedupCol];
     const { result, removedCount } = removeDuplicates(workingSheet, keyCols);
-    setWorkingSheet(result);
+    record(keyCols ? { op: 'dedupe', columns: keyCols } : { op: 'dedupe' }, result);
     showToast(`已去除 ${removedCount} 行重复数据`);
   };
 
   const handleRemoveEmpty = () => {
     if (!workingSheet) return;
     const { result, removedCount } = removeEmptyRows(workingSheet);
-    setWorkingSheet(result);
+    record({ op: 'removeEmptyRows' }, result);
     showToast(`已清除 ${removedCount} 行空数据`);
   };
 
   const handleTrimWhitespace = () => {
     if (!workingSheet) return;
     const result = trimWhitespace(workingSheet);
-    setWorkingSheet(result);
+    record({ op: 'trim' }, result);
     showToast('已修剪所有单元格首尾空格');
   };
 
@@ -124,7 +216,10 @@ const ProcessView: React.FC = () => {
   const handleApplyFilter = () => {
     if (!workingSheet) return;
     const { result, matchCount } = filterRows(workingSheet, filterConditions, matchType);
-    setWorkingSheet(result);
+    record(
+      { op: 'filter', match: matchType, conditions: filterConditions.map(({ column, operator, value }) => ({ column, operator, value })) },
+      result,
+    );
     showToast(`筛选完成，保留 ${matchCount} 行符合条件的数据`);
   };
 
@@ -173,7 +268,7 @@ const ProcessView: React.FC = () => {
           };
 
     const result = addComputedColumn(workingSheet, config);
-    setWorkingSheet(result);
+    record({ op: 'compute', config }, result);
     setNewColName('');
     showToast(`成功添加计算列：${config.name}`);
   };
@@ -215,12 +310,11 @@ const ProcessView: React.FC = () => {
   }, [workingSheet, pivotFilterField]);
 
   const handleApplyPivot = () => {
-    const baseSource = originalSheet ?? workingSheet;
-    if (!baseSource || !pivotRow || !pivotVal) {
+    if (!workingSheet || !pivotRow || !pivotVal) {
       showToast('请选择透视行维度和统计指标');
       return;
     }
-    const result = generatePivotTable(baseSource, {
+    const pivotConfig = {
       rowField: pivotRow,
       subRowField: pivotSubRow === '__NONE__' ? undefined : pivotSubRow,
       colField: pivotCol === '__NONE__' ? undefined : pivotCol,
@@ -232,8 +326,9 @@ const ProcessView: React.FC = () => {
       sortOrder: pivotSort,
       showRowTotal: pivotShowRowTotal,
       showColTotal: pivotShowColTotal,
-    });
-    setWorkingSheet(result);
+    };
+    const result = generatePivotTable(workingSheet, pivotConfig);
+    record({ op: 'pivot', config: pivotConfig }, result);
     showToast(`透视表生成成功：${result.rows.length} 行 × ${result.headers.length} 列`);
   };
 
@@ -250,7 +345,7 @@ const ProcessView: React.FC = () => {
   const handleApplyMask = () => {
     if (!workingSheet || !maskCol) return;
     const { result, maskedCount } = maskColumnData(workingSheet, maskCol, maskType);
-    setWorkingSheet(result);
+    record({ op: 'mask', column: maskCol, type: maskType }, result);
     showToast(`已对 [${maskCol}] 完成脱敏打码，共处理 ${maskedCount} 条记录`);
   };
 
@@ -288,11 +383,11 @@ const ProcessView: React.FC = () => {
         return;
       }
       const result = joinSheets(workingSheet, targetSheet, joinKeyA, joinKeyB, joinType);
-      setWorkingSheet(result);
+      record(null, result, `按「${joinKeyA}」=「${joinKeyB}」关联「${targetSheet.name}」`);
       showToast(`关联完成：生成新合并表 (${result.rows.length} 行 × ${result.headers.length} 列)`);
     } else {
       const result = unionSheets(workingSheet, targetSheet);
-      setWorkingSheet(result);
+      record(null, result, `纵向拼接「${targetSheet.name}」`);
       showToast(`纵向拼接完成：生成新合并表 (${result.rows.length} 行 × ${result.headers.length} 列)`);
     }
   };
@@ -309,7 +404,7 @@ const ProcessView: React.FC = () => {
   const handleDeleteColumns = () => {
     if (!workingSheet || selectedColsToDelete.length === 0) return;
     const result = deleteColumns(workingSheet, selectedColsToDelete);
-    setWorkingSheet(result);
+    record({ op: 'deleteColumns', columns: selectedColsToDelete }, result);
     setSelectedColsToDelete([]);
     showToast(`已删除 ${selectedColsToDelete.length} 列`);
   };
@@ -317,6 +412,7 @@ const ProcessView: React.FC = () => {
   // ---------------- Save handlers ----------------
   const handleReset = () => {
     setWorkingSheet(originalSheet);
+    setSteps([]);
     setFilterConditions([]);
     setSelectedColsToDelete([]);
     showToast('已重置为原始数据');
@@ -330,6 +426,7 @@ const ProcessView: React.FC = () => {
   const confirmSaveOverwrite = () => {
     if (!workingSheet || activeFileIndex < 0 || activeSheetIndex < 0) return;
     updateSheet(activeFileIndex, activeSheetIndex, workingSheet);
+    setSteps([]);
     setIsConfirmOverwriteOpen(false);
     showToast('已覆盖当前工作表');
   };
@@ -509,7 +606,7 @@ const ProcessView: React.FC = () => {
       {/* Main Workspace: Left Controls (340px) + Right Preview */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left Control Panel */}
-        <div className="flex w-84 flex-col border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
+        <div className="flex w-[336px] shrink-0 flex-col border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
           {/* Sub Navigation Tabs */}
           <div className="grid grid-cols-7 border-b border-gray-200 dark:border-gray-800 bg-gray-50/70 dark:bg-gray-950 p-1 text-center text-[10px] font-medium text-gray-500 dark:text-gray-400">
             <button
@@ -746,6 +843,7 @@ const ProcessView: React.FC = () => {
                       onClick={() => {
                         setFilterConditions([]);
                         setWorkingSheet(originalSheet);
+                        setSteps([]);
                         showToast('已清除所有筛选条件并恢复原始数据');
                       }}
                       className="rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition"
@@ -1404,6 +1502,18 @@ const ProcessView: React.FC = () => {
               </div>
             )}
           </div>
+          <StepsPanel
+            steps={steps}
+            carried={carried}
+            onUndo={handleUndoStep}
+            onSave={() => void handleSaveSteps()}
+            onLoad={() => void handleLoadSteps()}
+            onReplayCarried={() => {
+              if (carried) replaySteps(carried.steps, `「${carried.from}」的步骤`);
+              setCarried(null);
+            }}
+            onDismissCarried={() => setCarried(null)}
+          />
         </div>
 
         {/* Right Preview Data Grid */}

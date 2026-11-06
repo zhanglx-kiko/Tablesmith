@@ -295,7 +295,7 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData, locate }) => {
                   aria-pressed={valueMode === mode}
                   onClick={() => setValueMode(mode)}
                   title={hint}
-                  className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                  className={`px-1.5 py-0.5 rounded transition cursor-pointer whitespace-nowrap shrink-0 ${
                     valueMode === mode
                       ? 'bg-blue-50 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 font-semibold'
                       : 'hover:text-gray-700 dark:hover:text-gray-200'
@@ -340,7 +340,7 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData, locate }) => {
           <div className="hidden sm:flex items-center rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-0.5 text-[11px] font-medium text-gray-500 dark:text-gray-400 shadow-2xs">
             <button
               onClick={() => setTableZoom(85)}
-              className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+              className={`px-1.5 py-0.5 rounded transition cursor-pointer whitespace-nowrap shrink-0 ${
                 tableZoom === 85
                   ? 'bg-blue-50 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 font-semibold'
                   : 'hover:text-gray-700 dark:hover:text-gray-200'
@@ -351,7 +351,7 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData, locate }) => {
             </button>
             <button
               onClick={() => setTableZoom(100)}
-              className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+              className={`px-1.5 py-0.5 rounded transition cursor-pointer whitespace-nowrap shrink-0 ${
                 tableZoom === 100
                   ? 'bg-blue-50 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 font-semibold'
                   : 'hover:text-gray-700 dark:hover:text-gray-200'
@@ -362,7 +362,7 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData, locate }) => {
             </button>
             <button
               onClick={() => setTableZoom(120)}
-              className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+              className={`px-1.5 py-0.5 rounded transition cursor-pointer whitespace-nowrap shrink-0 ${
                 tableZoom === 120
                   ? 'bg-blue-50 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 font-semibold'
                   : 'hover:text-gray-700 dark:hover:text-gray-200'
@@ -378,7 +378,7 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData, locate }) => {
           {/* 列宽自适应与平铺 */}
           <button
             onClick={handleFitContents}
-            className="flex items-center gap-1 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-0.5 text-[11px] font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-blue-600 dark:hover:text-blue-400 transition shadow-2xs cursor-pointer active:scale-95"
+            className="flex items-center gap-1 rounded border border-gray-200 whitespace-nowrap shrink-0 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-0.5 text-[11px] font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-blue-600 dark:hover:text-blue-400 transition shadow-2xs cursor-pointer active:scale-95"
             title="根据单元格内容自适应全部列宽"
           >
             <Maximize2 size={11} />
@@ -386,7 +386,7 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData, locate }) => {
           </button>
           <button
             onClick={handleFitGridWidth}
-            className="flex items-center gap-1 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-0.5 text-[11px] font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-blue-600 dark:hover:text-blue-400 transition shadow-2xs cursor-pointer active:scale-95"
+            className="flex items-center gap-1 rounded border border-gray-200 whitespace-nowrap shrink-0 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-0.5 text-[11px] font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-blue-600 dark:hover:text-blue-400 transition shadow-2xs cursor-pointer active:scale-95"
             title="将所有列平铺撑满当前表格视口"
           >
             <Minimize2 size={11} />
