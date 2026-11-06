@@ -7,11 +7,12 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { SheetData } from '../types';
 import { parseFileBytes } from './import';
-import { generatePivotTable, type PivotAggType, type PivotConfig } from './pivotTableService';
+import { generatePivotTable, generatePivotTableWithMeta, pivotCellDetail, type PivotAggType, type PivotConfig } from './pivotTableService';
 
 const CSV = 'D:/tmp/excel/sales_detail.csv';
 const REF = join(__dirname, '../../src-tauri/target/excel-reference/pivot_sales.json');
 const CASES = join(__dirname, '../../sample-data/excel-reference/pivot_cases.json');
+const DETAIL = join(__dirname, '../../src-tauri/target/excel-reference/pivot_detail_sales.json');
 const have = existsSync(CSV) && existsSync(REF);
 
 interface Case {
@@ -156,6 +157,123 @@ describe('pivot value modes and blanks', () => {
   it('pivot never touches the source sheet', () => {
     const before = JSON.stringify(sheet);
     generatePivotTable(sheet, { ...base, valueMode: 'percent_col' });
+    expect(JSON.stringify(sheet)).toBe(before);
+  });
+});
+
+/**
+ * Drill-down against Excel's Show Details: scripts/excel-pivot-detail.ps1 double-clicked
+ * every value cell of the same pivots and recorded the sale_ids Excel listed.
+ */
+describe.skipIf(!have || !existsSync(DETAIL))('drill-down equals Excel Show Details, row by row', () => {
+  const sheet = have ? parseFileBytes('sales_detail.csv', new Uint8Array(readFileSync(CSV))).file.sheets[0] : null!;
+  const cases = JSON.parse(readFileSync(CASES, 'utf8')) as Case[];
+  const ref = have ? (JSON.parse(readFileSync(REF, 'utf8').replace(/^﻿/, '')) as { name: string; grid: string[][] }[]) : [];
+  const detail = existsSync(DETAIL)
+    ? (JSON.parse(readFileSync(DETAIL, 'utf8').replace(/^﻿/, '')) as { name: string; cells: { r: number; c: number; ids: string[] | string }[] }[])
+    : [];
+
+  for (const c of cases) {
+    it(c.name, () => {
+      const grid = ref.find((r) => r.name === c.name)!.grid;
+      const cells = detail.find((d) => d.name === c.name)!.cells;
+      const cfg = config(c);
+      const out = generatePivotTableWithMeta(sheet, cfg);
+      const nRow = c.rows.length;
+      const hasCols = c.cols.length > 0;
+      const head = hasCols ? grid[1] : grid[0];
+      const problems: string[] = [];
+      let compared = 0;
+      for (const cell of cells) {
+        const want = ([] as string[]).concat(cell.ids).sort();
+        if (want.length === 0) continue;
+        // Excel cell -> our cell through the row labels and the column header.
+        const line = grid[cell.r];
+        const grand = GRAND.has(line[0]);
+        const rk = line.slice(0, nRow).map((v, i) => label(c.rows[i], v)).join('/');
+        const ourRow = out.sheet.rows.findIndex((r) => (grand ? r[0] === '总计' : r.slice(0, nRow).join('/') === rk));
+        const colHead = head[cell.c];
+        const ourCol = !hasCols ? nRow : GRAND.has(colHead) ? out.sheet.headers.indexOf('总计') : out.sheet.headers.indexOf(label(c.cols[0], colHead));
+        const got = pivotCellDetail(sheet, cfg, ourRow, ourCol);
+        const ids = (got?.sheet.rows.map((r) => r[0]) ?? []).sort();
+        compared += 1;
+        if (ids.length !== want.length || ids.some((id, i) => id !== want[i])) {
+          problems.push(`${rk}|${colHead}: excel ${want.length} rows, ours ${ids.length}`);
+        }
+      }
+      expect(compared).toBeGreaterThan(3);
+      expect(problems.slice(0, 10)).toEqual([]);
+    });
+  }
+});
+
+describe('pivot drill-down', () => {
+  const sheet: SheetData = {
+    name: 's',
+    headers: ['r', 'c', 'v', 'k'],
+    rows: [
+      ['A', 'x', '10', 'p'],
+      ['A', 'y', '30', 'q'],
+      ['B', 'x', '60', 'p'],
+      ['B', 'x', '', 'q'],
+      ['C', 'y', 'n/a', 'p'],
+      ['A', 'x', '5', 'q'],
+    ],
+    display: [
+      ['A', 'x', '10.00', 'p'],
+      [null, null, null, null],
+      [null, null, null, null],
+      [null, null, null, null],
+      [null, null, null, null],
+      [null, null, null, null],
+    ],
+    formulas: [[null, null, 'B1*2', null], [], [], [], [], []],
+  };
+  const base: PivotConfig = { rowField: 'r', colField: 'c', valueField: 'v', aggType: 'sum' };
+  const rowsOf = (cfg: PivotConfig, r: number, c: number) => pivotCellDetail(sheet, cfg, r, c)?.sheet.rows ?? null;
+
+  it('a value cell lists every source row of its group, blanks and text included', () => {
+    // Output: A, B, C, 总计; columns r, x, y, 总计.
+    expect(rowsOf(base, 0, 1)).toEqual([sheet.rows[0], sheet.rows[5]]);
+    expect(rowsOf(base, 1, 1)).toEqual([sheet.rows[2], sheet.rows[3]]);
+    expect(rowsOf(base, 2, 2)).toEqual([sheet.rows[4]]);
+  });
+
+  it('totals list their whole row, column or table in source order', () => {
+    expect(rowsOf(base, 0, 3)).toEqual([sheet.rows[0], sheet.rows[1], sheet.rows[5]]);
+    expect(rowsOf(base, 3, 1)).toEqual([sheet.rows[0], sheet.rows[2], sheet.rows[3], sheet.rows[5]]);
+    expect(rowsOf(base, 3, 3)).toEqual(sheet.rows);
+  });
+
+  it('label cells and empty cells have no detail', () => {
+    expect(pivotCellDetail(sheet, base, 0, 0)).toBeNull();
+    expect(pivotCellDetail(sheet, base, 2, 1)).toBeNull();
+  });
+
+  it('the report filter limits the detail, and the label names the cell', () => {
+    const cfg: PivotConfig = { ...base, filterField: 'k', filterValue: 'p' };
+    const d = pivotCellDetail(sheet, cfg, 0, 1)!;
+    expect(d.sheet.rows).toEqual([sheet.rows[0]]);
+    expect(d.label).toBe('r=A · c=x · k=p');
+    expect(pivotCellDetail(sheet, cfg, 3, 3)!.label).toBe('总计 · k=p');
+    expect(pivotCellDetail(sheet, cfg, 3, 3)!.sheet.rows).toEqual([sheet.rows[0], sheet.rows[2], sheet.rows[4]]);
+  });
+
+  it('two row levels and value modes drill the same way', () => {
+    const cfg: PivotConfig = { rowField: 'r', subRowField: 'k', valueField: 'v', aggType: 'count', valueMode: 'percent_total' };
+    const out = generatePivotTableWithMeta(sheet, cfg);
+    const aq = out.sheet.rows.findIndex((r) => r[0] === 'A' && r[1] === 'q');
+    const d = pivotCellDetail(sheet, cfg, aq, 2)!;
+    expect(d.sheet.rows).toEqual([sheet.rows[1], sheet.rows[5]]);
+    expect(d.label).toBe('r=A · k=q');
+  });
+
+  it('detail rows keep their display text and formulas, and the source is unchanged', () => {
+    const before = JSON.stringify(sheet);
+    const d = pivotCellDetail(sheet, base, 0, 1)!;
+    expect(d.sheet.headers).toEqual(sheet.headers);
+    expect(d.sheet.display?.[0]).toEqual(sheet.display?.[0]);
+    expect(d.sheet.formulas?.[0]).toEqual(sheet.formulas?.[0]);
     expect(JSON.stringify(sheet)).toBe(before);
   });
 });

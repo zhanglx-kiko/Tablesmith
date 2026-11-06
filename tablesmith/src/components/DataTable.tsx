@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useCallback, useEffect, useState } from 'react';
 import { AgGridReact } from 'ag-grid-react';
-import type { CellClickedEvent, ColDef, GridApi, GridReadyEvent } from 'ag-grid-community';
+import type { CellClickedEvent, CellDoubleClickedEvent, ColDef, GridApi, GridReadyEvent } from 'ag-grid-community';
 import { AllCommunityModule, ModuleRegistry } from 'ag-grid-community';
 import { AG_GRID_LOCALE_CN } from '@ag-grid-community/locale';
 import { FilterX, FunctionSquare, Maximize2, Minimize2, ZoomIn, ZoomOut } from 'lucide-react';
@@ -39,9 +39,20 @@ export interface LocateRequest {
 interface DataTableProps {
   sheetData: SheetData;
   locate?: LocateRequest | null;
+  /** Double-click on a cell, by data row and column index (not the sorted display row). */
+  onCellDoubleClick?: (row: number, col: number) => void;
+  /** Short hint shown in the footer for what double-click does here. */
+  doubleClickHint?: string;
 }
 
-const DataTable: React.FC<DataTableProps> = ({ sheetData, locate }) => {
+/** Data row and column of a grid cell event: the row id names the data row (`row_12`). */
+function cellAt(e: CellClickedEvent | CellDoubleClickedEvent): { row: number; col: number } | null {
+  const col = Number(e.column.getColId().slice(1));
+  const row = Number(String(e.node.id ?? '').replace('row_', ''));
+  return Number.isInteger(col) && Number.isInteger(row) ? { row, col } : null;
+}
+
+const DataTable: React.FC<DataTableProps> = ({ sheetData, locate, onCellDoubleClick, doubleClickHint }) => {
   const gridApiRef = useRef<GridApi | null>(null);
   /** Cell picked in the health panel, outlined until another cell is located. */
   const locatedRef = useRef<{ rowId: string; colId: string | null } | null>(null);
@@ -220,17 +231,25 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData, locate }) => {
   // Clicking a cell shows its formula in the bar above the grid (cell focus is off, so
   // the selection is tracked here).
   const handleCellClicked = useCallback((e: CellClickedEvent) => {
+    // The display index changes with sorting and filtering, so it must not be used to
+    // look up the formula.
+    const at = cellAt(e);
+    if (!at) return;
     const colId = e.column.getColId();
-    const col = Number(colId.slice(1));
-    // The row id names the data row (`row_12`); the display index changes with sorting
-    // and filtering, so it must not be used to look up the formula.
-    const row = Number(String(e.node.id ?? '').replace('row_', ''));
-    if (!Number.isInteger(col) || !Number.isInteger(row)) return;
+    const { row, col } = at;
     const previous = selectedRef.current ? e.api.getRowNode(selectedRef.current.rowId) : undefined;
     selectedRef.current = { rowId: e.node.id ?? '', colId };
     setSelected({ row, col });
     e.api.refreshCells({ rowNodes: previous ? [previous, e.node] : [e.node], force: true });
   }, []);
+
+  const handleCellDoubleClicked = useCallback(
+    (e: CellDoubleClickedEvent) => {
+      const at = cellAt(e);
+      if (at && onCellDoubleClick) onCellDoubleClick(at.row, at.col);
+    },
+    [onCellDoubleClick],
+  );
 
   const selectedFormula = selected ? (sheetData.formulas?.[selected.row]?.[selected.col] ?? null) : null;
   const selectedValue = selected ? (sheetData.rows[selected.row]?.[selected.col] ?? '') : '';
@@ -304,6 +323,7 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData, locate }) => {
           onGridReady={handleGridReady}
           onFilterChanged={handleFilterChanged}
           onCellClicked={handleCellClicked}
+          onCellDoubleClicked={onCellDoubleClick ? handleCellDoubleClicked : undefined}
           tooltipShowDelay={400}
           animateRows
           suppressCellFocus
@@ -337,6 +357,14 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData, locate }) => {
           <span className="hidden md:inline text-[11px] text-gray-400 dark:text-gray-500" data-testid="value-semantics">
             {hasDisplay ? '排序、数值筛选和计算按原始值；文本筛选按单元格显示的文字' : '支持拖拽/双击列边界微调列宽'}
           </span>
+          {doubleClickHint && (
+            <>
+              <span className="text-gray-300 dark:text-gray-700">|</span>
+              <span className="text-[11px] text-gray-500 dark:text-gray-400" data-testid="double-click-hint">
+                {doubleClickHint}
+              </span>
+            </>
+          )}
         </div>
 
         <div className="flex items-center gap-2">

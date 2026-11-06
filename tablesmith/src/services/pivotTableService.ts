@@ -1,6 +1,7 @@
 import type { SheetData } from '../types';
 import { parseNumericCell } from '../utils/numberUtils';
 import { formatNumber } from './import/cellText';
+import { selectRows } from './dataProcessService';
 
 /** Excel's (zh-CN) names for value fields and the grand total. */
 const AGG_LABEL: Record<PivotAggType, string> = {
@@ -44,6 +45,13 @@ export interface PivotTableOutput {
   hasColDimension: boolean;
   rowKeys: string[];
   colKeys: string[];
+  /**
+   * Source row indices behind each output cell (same shape as `sheet.rows`), in source
+   * order; null for label cells and cells with no source rows. Like Excel's Show Details,
+   * a cell lists every row in its group (including rows whose value is blank or text) and
+   * totals list every row of their row, column or the whole (filtered) table.
+   */
+  sources: (number[] | null)[][];
 }
 
 /**
@@ -83,15 +91,16 @@ export function generatePivotTableWithMeta(sheet: SheetData, config: PivotConfig
       hasColDimension: false,
       rowKeys: [],
       colKeys: [],
+      sources: [],
     };
   }
 
-  // 1. Filter rows
-  const sourceRows = sheet.rows.filter((row) => {
-    if (filterIdx >= 0 && filterValue && filterValue !== '__ALL__') {
-      return String(row[filterIdx] ?? '').trim() === filterValue;
+  // 1. Filter rows (kept as indices so each cell can list its source rows)
+  const sourceIndices: number[] = [];
+  sheet.rows.forEach((row, i) => {
+    if (filterIdx < 0 || !filterValue || filterValue === '__ALL__' || String(row[filterIdx] ?? '').trim() === filterValue) {
+      sourceIndices.push(i);
     }
-    return true;
   });
 
   // Map: compositeRowKey -> colKey -> raw values (as strings/numbers)
@@ -103,8 +112,11 @@ export function generatePivotTableWithMeta(sheet: SheetData, config: PivotConfig
   const rowMetaMap = new Map<string, RowMeta>();
   const colKeySet = new Set<string>();
   const matrix = new Map<string, Map<string, (string | number)[]>>();
+  /** compositeRowKey -> colKey -> source row indices, parallel to `matrix`. */
+  const rowsOf = new Map<string, Map<string, number[]>>();
 
-  for (const row of sourceRows) {
+  for (const srcIndex of sourceIndices) {
+    const row = sheet.rows[srcIndex];
     const rKeyPrimary = String(row[rowIdx] ?? '未知').trim() || '空值';
     const rKeySecondary = subRowIdx >= 0 ? String(row[subRowIdx] ?? '无').trim() || '空值' : undefined;
     const compositeRowKey = rKeySecondary ? `${rKeyPrimary} ❯ ${rKeySecondary}` : rKeyPrimary;
@@ -119,12 +131,16 @@ export function generatePivotTableWithMeta(sheet: SheetData, config: PivotConfig
 
     if (!matrix.has(compositeRowKey)) {
       matrix.set(compositeRowKey, new Map());
+      rowsOf.set(compositeRowKey, new Map());
     }
     const rowMap = matrix.get(compositeRowKey)!;
+    const idxMap = rowsOf.get(compositeRowKey)!;
     if (!rowMap.has(cKey)) {
       rowMap.set(cKey, []);
+      idxMap.set(cKey, []);
     }
     rowMap.get(cKey)!.push(rawVal);
+    idxMap.get(cKey)!.push(srcIndex);
   }
 
   const sortedColKeys = Array.from(colKeySet);
@@ -225,17 +241,28 @@ export function generatePivotTableWithMeta(sheet: SheetData, config: PivotConfig
 
   const resultRows: string[][] = [];
   const resultDisplay: (string | null)[][] = [];
-  const pushRow = (labels: string[], cells: { raw: string; display: string | null }[]) => {
+  const sources: (number[] | null)[][] = [];
+  const pushRow = (labels: string[], cells: { raw: string; display: string | null }[], cellSources: number[][]) => {
     resultRows.push([...labels, ...cells.map((c) => c.raw)]);
     resultDisplay.push([...labels.map(() => null), ...cells.map((c) => c.display)]);
+    sources.push([...labels.map(() => null), ...cellSources.map((ids) => (ids.length ? ids : null))]);
   };
+  const ascending = (a: number, b: number) => a - b;
+  const rowSources = (rKey: string): number[] =>
+    sortedColKeys.flatMap((cKey) => rowsOf.get(rKey)?.get(cKey) ?? []).sort(ascending);
+  const colSources = (cKey: string): number[] =>
+    sortedRowKeys.flatMap((rKey) => rowsOf.get(rKey)?.get(cKey) ?? []).sort(ascending);
 
   for (const rKey of sortedRowKeys) {
     const meta = rowMetaMap.get(rKey)!;
     const rTotal = rowTotals.get(rKey) ?? null;
     const cells = sortedColKeys.map((cKey) => cell(cellAgg.get(rKey)?.get(cKey) ?? null, baseFor(rTotal, colTotals.get(cKey) ?? null)));
-    if (withRowTotal) cells.push(cell(rTotal, valueMode === 'percent_row' ? rTotal : baseFor(rTotal, grandTotal)));
-    pushRow(twoLevel ? [meta.primary, meta.secondary ?? ''] : [meta.primary], cells);
+    const cellSources = sortedColKeys.map((cKey) => rowsOf.get(rKey)?.get(cKey) ?? []);
+    if (withRowTotal) {
+      cells.push(cell(rTotal, valueMode === 'percent_row' ? rTotal : baseFor(rTotal, grandTotal)));
+      cellSources.push(rowSources(rKey));
+    }
+    pushRow(twoLevel ? [meta.primary, meta.secondary ?? ''] : [meta.primary], cells, cellSources);
   }
 
   if (showColTotal) {
@@ -243,8 +270,12 @@ export function generatePivotTableWithMeta(sheet: SheetData, config: PivotConfig
       const cTotal = colTotals.get(cKey) ?? null;
       return cell(cTotal, valueMode === 'percent_col' ? cTotal : baseFor(grandTotal, cTotal));
     });
-    if (withRowTotal) cells.push(cell(grandTotal, valueMode === 'raw' ? null : grandTotal));
-    pushRow(twoLevel ? [GRAND_TOTAL, ''] : [GRAND_TOTAL], cells);
+    const cellSources = sortedColKeys.map(colSources);
+    if (withRowTotal) {
+      cells.push(cell(grandTotal, valueMode === 'raw' ? null : grandTotal));
+      cellSources.push(sourceIndices);
+    }
+    pushRow(twoLevel ? [GRAND_TOTAL, ''] : [GRAND_TOTAL], cells, cellSources);
   }
 
   if (minVal === Infinity) minVal = 0;
@@ -263,5 +294,40 @@ export function generatePivotTableWithMeta(sheet: SheetData, config: PivotConfig
     hasColDimension: colIdx >= 0,
     rowKeys: sortedRowKeys,
     colKeys: sortedColKeys,
+    sources,
   };
+}
+
+export interface PivotCellDetail {
+  /** The source rows behind the cell, all columns, in source order. */
+  sheet: SheetData;
+  /** What the cell stands for, e.g. "region=East · period_id=2024-01". */
+  label: string;
+}
+
+/**
+ * Excel's Show Details (double-click a PivotTable value): the source rows behind one
+ * output cell of `generatePivotTable(source, config)`. Null for label cells and blank
+ * cells. Values, display text and formulas come from the source unchanged.
+ */
+export function pivotCellDetail(source: SheetData, config: PivotConfig, row: number, col: number): PivotCellDetail | null {
+  const out = generatePivotTableWithMeta(source, config);
+  const ids = out.sources[row]?.[col];
+  // A blank cell (e.g. a percentage of a zero total) shows nothing to explain.
+  if (!ids || (out.sheet.rows[row]?.[col] ?? '') === '') return null;
+  const headers = out.sheet.headers;
+  const parts: string[] = [];
+  const rowLabels = out.sheet.rows[row] ?? [];
+  const nLabels = config.subRowField && config.subRowField !== '__NONE__' ? 2 : 1;
+  if (rowLabels[0] !== GRAND_TOTAL) {
+    for (let i = 0; i < nLabels; i += 1) parts.push(`${headers[i]}=${rowLabels[i]}`);
+  }
+  if (out.hasColDimension && headers[col] !== GRAND_TOTAL) parts.push(`${config.colField}=${headers[col]}`);
+  if (parts.length === 0) parts.push(GRAND_TOTAL);
+  if (config.filterField && config.filterField !== '__NONE__' && config.filterValue && config.filterValue !== '__ALL__') {
+    parts.push(`${config.filterField}=${config.filterValue}`);
+  }
+  const label = parts.join(' · ');
+  const sheet = selectRows(source, ids);
+  return { sheet: { ...sheet, name: `${source.name}_明细(${label})` }, label };
 }

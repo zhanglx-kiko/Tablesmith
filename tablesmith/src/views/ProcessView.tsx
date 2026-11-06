@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Sparkles,
@@ -23,6 +23,7 @@ import {
 import { useDataStore } from '../store/useDataStore';
 import DataTable from '../components/DataTable';
 import ExportModal from '../components/ExportModal';
+import PivotDetailModal from '../components/PivotDetailModal';
 import StepsPanel, { type AppliedStep, type CarriedSteps } from '../components/StepsPanel';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
@@ -55,6 +56,8 @@ import {
 } from '../services/dataProcessService';
 import {
   generatePivotTable,
+  pivotCellDetail,
+  type PivotCellDetail,
   type PivotAggType,
   type PivotValueMode,
   type PivotSortOrder,
@@ -494,6 +497,34 @@ const ProcessView: React.FC = () => {
     }
     addSheetToFile(activeFileIndex, { ...workingSheet, name: newName });
     showToast(`已另存为新工作表：${newName}`);
+  };
+
+  // Drill-down: while the table shows a pivot result, double-clicking a value cell lists
+  // the source rows behind it (Excel's Show Details). The source is the table the pivot
+  // step ran on.
+  const lastStep = steps[steps.length - 1];
+  const pivotStep = lastStep?.step?.op === 'pivot' && lastStep.sheet === workingSheet ? lastStep : null;
+  const pivotSource = pivotStep ? (steps.length > 1 ? steps[steps.length - 2].sheet : originalSheet) : null;
+  const [pivotDetail, setPivotDetail] = useState<{ detail: PivotCellDetail; value: string } | null>(null);
+  const handlePivotCellDoubleClick = useCallback(
+    (row: number, col: number) => {
+      if (!pivotStep || pivotStep.step?.op !== 'pivot' || !pivotSource || !workingSheet) return;
+      const detail = pivotCellDetail(pivotSource, pivotStep.step.config, row, col);
+      if (!detail) return;
+      const value = workingSheet.display?.[row]?.[col] ?? workingSheet.rows[row]?.[col] ?? '';
+      setPivotDetail({ detail, value });
+    },
+    [pivotStep, pivotSource, workingSheet],
+  );
+  const closePivotDetail = useCallback(() => setPivotDetail(null), []);
+  const handleSaveDetailSheet = (detail: PivotCellDetail) => {
+    if (activeFileIndex < 0 || !activeFile) return;
+    const existingNames = new Set(activeFile.sheets.map((s) => s.name));
+    let name = detail.sheet.name;
+    for (let n = 1; existingNames.has(name); n += 1) name = `${detail.sheet.name} (${n})`;
+    addSheetToFile(activeFileIndex, { ...detail.sheet, name });
+    setPivotDetail(null);
+    showToast(`已另存为新工作表：${name}`);
   };
 
   const handlePivotToChart = () => {
@@ -1045,7 +1076,7 @@ const ProcessView: React.FC = () => {
 
             {/* 4. Pivot Table Tab */}
             {activeTab === 'pivot' && (
-              <div className="space-y-4">
+              <div className="space-y-4" data-testid="pivot-panel">
                 <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/50 p-3.5 space-y-3.5">
                   <div className="flex items-center justify-between">
                     <h4 className="flex items-center gap-1.5 text-xs font-semibold text-gray-800 dark:text-gray-200">
@@ -1650,7 +1681,11 @@ const ProcessView: React.FC = () => {
         <div className="flex-1 overflow-hidden p-4">
           <div className="flex h-full flex-col rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800/80 shadow-sm overflow-hidden">
             {workingSheet ? (
-              <DataTable sheetData={workingSheet} />
+              <DataTable
+                sheetData={workingSheet}
+                onCellDoubleClick={pivotStep ? handlePivotCellDoubleClick : undefined}
+                doubleClickHint={pivotStep ? '双击数值查看明细' : undefined}
+              />
             ) : (
               <div className="flex h-full items-center justify-center text-xs text-gray-400">
                 请先选择工作表
@@ -1667,6 +1702,13 @@ const ProcessView: React.FC = () => {
           {toastMessage}
         </div>
       )}
+
+      <PivotDetailModal
+        detail={pivotDetail?.detail ?? null}
+        value={pivotDetail?.value ?? ''}
+        onClose={closePivotDetail}
+        onSaveAsSheet={handleSaveDetailSheet}
+      />
 
       {/* Pivot Export Customization Modal */}
       <ExportModal

@@ -41,7 +41,7 @@
    - 具备 WCAG AA 级 3px 动态高反差光晕数值标签，一键导出 2x 高清 PNG 图片
 
 4. **高级数据处理与 Excel 级数据透视表**
-   - **四象限数据透视表 (Pivot Table)**：行维度分组（支持多层级展开）、列交叉对比、6 大聚合统计（SUM/AVG/COUNT/DISTINCT/MAX/MIN）、4 种占比计算、字段切片器与行列总计；计算口径与桌面 Excel 透视表逐格一致（空格留空、总计按明细重算、不四舍五入），详见 [docs/pivot.md](docs/pivot.md)
+   - **四象限数据透视表 (Pivot Table)**：行维度分组（支持多层级展开）、列交叉对比、6 大聚合统计（SUM/AVG/COUNT/DISTINCT/MAX/MIN）、4 种占比计算、字段切片器与行列总计；计算口径与桌面 Excel 透视表逐格一致（空格留空、总计按明细重算、不四舍五入）；双击任一数值（含总计）查看它来自哪些源数据行，可另存为新工作表，与 Excel 的“显示详细信息”逐行一致。详见 [docs/pivot.md](docs/pivot.md)
    - **基础清洗**：一键数据排重、一键清空行、全局空白字符修剪（Trim）、复合条件组合筛选
    - **计算列与派生**：加减乘除四则运算派生列、多列文本拼接列、指定列快捷删除
    - 去重、计算列与筛选的结果与桌面 Excel 逐行一致（删除重复项不分大小写、按值和日期比较；计算列与 `=A+B` 相同，含 `#VALUE!` / `#DIV/0!`；日期可按大小筛选），详见 [docs/process-rules.md](docs/process-rules.md)
@@ -157,7 +157,7 @@ tablesmith/
 │   │   ├── chartService.ts        # 图表配置生成服务
 │   │   ├── dataProcessService.ts  # 数据清洗、计算衍生列、脱敏、关联与拼接引擎
 │   │   ├── fileService.ts         # 导入入口、原生拖放、各格式导出与统一保存流程
-│   │   ├── pivotTableService.ts   # Excel 级多维交叉数据透视表计算引擎
+│   │   ├── pivotTableService.ts   # Excel 级多维交叉数据透视表计算引擎与明细下钻
 │   │   ├── reportService.ts       # A4 图文混排报告导出与系统打印服务
 │   │   └── storageService.ts      # IndexedDB 工作台未关闭数据源自动恢复与缓存服务
 │   ├── store/
