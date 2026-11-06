@@ -1,22 +1,35 @@
 import { isDateCell, isErrorCell, type GridCell } from './types';
 
 /**
- * Render a binary floating point value the way a spreadsheet shows it: 15 significant
- * digits (Excel's precision) so that 0.1 + 0.2 becomes "0.3", and never exponent notation
- * for ordinary magnitudes.
+ * Raw text of a stored number: the shortest decimal that reads back as exactly the same
+ * double (what Excel holds), so importing never changes a value. Plain decimal notation
+ * for ordinary magnitudes. Excel's 15-digit rendering (0.30000000000000004 shows as 0.3)
+ * belongs to the display layer, not here.
  */
 export function formatNumber(value: number): string {
   if (!Number.isFinite(value)) return '';
-  const rounded = Number(value.toPrecision(15));
-  const text = String(rounded);
+  const text = String(value);
   if (!text.includes('e')) return text;
-  if (Math.abs(rounded) >= 1e21) return text;
-  return rounded.toFixed(20).replace(/\.?0+$/, '');
+  if (Math.abs(value) >= 1e21) return text;
+  // 1e-7 -> "0.0000001": expand the exponent without adding or dropping digits.
+  const [mantissa, exp] = text.split('e');
+  const e = Number(exp);
+  const negative = mantissa.startsWith('-');
+  const digits = mantissa.replace('-', '').replace('.', '');
+  const point = mantissa.replace('-', '').indexOf('.');
+  const intLen = (point === -1 ? digits.length : point) + e;
+  const body =
+    intLen <= 0
+      ? `0.${'0'.repeat(-intLen)}${digits}`
+      : intLen >= digits.length
+        ? digits + '0'.repeat(intLen - digits.length)
+        : `${digits.slice(0, intLen)}.${digits.slice(intLen)}`;
+  return negative ? `-${body}` : body;
 }
 
 export function cellToText(cell: GridCell): string {
   if (cell === null) return '';
-  if (typeof cell === 'string') return cell.trimEnd();
+  if (typeof cell === 'string') return cell;
   if (typeof cell === 'number') return formatNumber(cell);
   if (typeof cell === 'boolean') return cell ? 'TRUE' : 'FALSE';
   if (isDateCell(cell)) return cell.date;

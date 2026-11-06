@@ -19,6 +19,10 @@ serde_json = "1"
 calamine = { version = "0.28", features = ["dates"] }
 chrono = { version = "0.4", default-features = false }
 encoding_rs = "0.8"
+quick-xml = "0.37"
+zip = { version = "4", default-features = false, features = ["deflate"] }
+cfb = "0.14"
+codepage = "0.1"
 
 [profile.release]
 panic = "abort"

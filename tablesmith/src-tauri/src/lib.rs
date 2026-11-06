@@ -1,5 +1,7 @@
+mod binary_formats;
 mod commands;
 mod import;
+mod xlsx_formats;
 
 use commands::{
     get_unique_filepath, read_file_bytes, read_file_data, save_binary_file, save_file,

@@ -1,7 +1,13 @@
 export interface SheetData {
   name: string;
   headers: string[];
+  /** Raw values as text (full precision); every calculation uses these. */
   rows: string[][];
+  /**
+   * What Excel shows for each cell, same shape as `rows`; null where it equals the raw
+   * text. Omitted when the sheet has no formatted cells (see docs/display-formats.md).
+   */
+  display?: (string | null)[][];
 }
 
 export interface FileData {

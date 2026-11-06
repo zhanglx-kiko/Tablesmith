@@ -1,5 +1,6 @@
 import type { SheetData } from '../../types';
 import { cellKind, cellToText } from './cellText';
+import { formatGeneral, formatNumber, formatText, isDateFormat, resolveFormatCode, serialToText } from './numberFormat';
 import { isDateCell, type GridCell, type MergeRange, type RawSheet, type RawWorkbook } from './types';
 
 /** Header search looks at this many non-empty rows from the top of a table block. */
@@ -90,14 +91,49 @@ function isBanner(p: RowProfile): boolean {
 }
 
 /** Copy the anchor value of vertically merged ranges into the cells below it. */
-function fillVerticalMerges(rows: GridCell[][], merges: MergeRange[]): void {
+/**
+ * Decide date-ness from the cell's real number format, the same way for every reader:
+ * a number under a date / time format becomes a date (raw text `2024-01-31 13:45:41`,
+ * serial kept for display); a reader-made date under a non-date format goes back to its
+ * number. Without a format code (ODS) the reader's own guess stands.
+ */
+function classifyDates(rows: GridCell[][], formatFor: FormatLookup): void {
+  for (let r = 0; r < rows.length; r += 1) {
+    const row = rows[r];
+    for (let c = 0; c < row.length; c += 1) {
+      const cell = row[c];
+      const serial = typeof cell === 'number' ? cell : isDateCell(cell) ? cell.serial : undefined;
+      if (serial === undefined) continue;
+      const code = formatFor(r, c);
+      if (code === null) {
+        // General: calamine and SheetJS agree it is a number unless the file says date.
+        if (isDateCell(cell) && formatFor.knowsFormats) row[c] = serial;
+        continue;
+      }
+      const date = isDateFormat(code);
+      if (date && typeof cell === 'number' && serial >= 0) {
+        const text = serialToText(serial, formatFor.date1904);
+        if (text !== null) row[c] = { date: text, serial };
+      } else if (!date && isDateCell(cell)) {
+        row[c] = serial;
+      }
+    }
+  }
+}
+
+/** Copy each vertical merge's anchor value (and its number format) into the cells below. */
+function fillVerticalMerges(rows: GridCell[][], formats: number[][], merges: MergeRange[]): void {
   for (const [r1, c1, r2] of merges) {
     if (r2 <= r1) continue;
     const anchor = rows[r1]?.[c1] ?? null;
     if (anchor === null) continue;
+    const anchorFormat = formats[r1]?.[c1] ?? -1;
     for (let r = r1 + 1; r <= r2 && r < rows.length; r += 1) {
       const row = rows[r];
-      if (row && (row[c1] === null || row[c1] === undefined || row[c1] === '')) row[c1] = anchor;
+      if (row && (row[c1] === null || row[c1] === undefined || row[c1] === '')) {
+        row[c1] = anchor;
+        if (formats[r]) formats[r][c1] = anchorFormat;
+      }
     }
   }
 }
@@ -253,22 +289,42 @@ function buildHeaderParts(
   return parts;
 }
 
+/** Number format code of a source cell, or null for General / unknown. */
+interface FormatLookup {
+  (row: number, col: number): string | null;
+  /** The reader reported per-cell formats (xlsx / xlsm / xlsb / xls). */
+  knowsFormats: boolean;
+  /** Spreadsheet source: plain numbers render like Excel's General. */
+  spreadsheet: boolean;
+  date1904: boolean;
+}
+
+function formatLookup(sheet: RawSheet, spreadsheet: boolean, date1904: boolean): FormatLookup {
+  const codes = sheet.formats.map(resolveFormatCode);
+  const lookup = (row: number, col: number): string | null => {
+    const i = sheet.cellFormats[row]?.[col] ?? -1;
+    return i >= 0 ? codes[i] ?? null : null;
+  };
+  return Object.assign(lookup, { knowsFormats: sheet.cellFormats.length > 0, spreadsheet, date1904 });
+}
+
 function blockToSheet(
   rows: GridCell[][],
   merges: MergeRange[],
   block: Block,
   width: number,
   name: string,
-): SheetData {
+  formatFor: FormatLookup,
+): ImportedTable {
   const headerParts = buildHeaderParts(rows, merges, block, width);
-  const dataRows: GridCell[][] = [];
+  const dataRows: { cells: GridCell[]; source: number }[] = [];
   for (let r = block.dataStart; r < block.footerStart; r += 1) {
-    if (rows[r].some((c) => cellKind(c) !== 'empty')) dataRows.push(rows[r]);
+    if (rows[r].some((c) => cellKind(c) !== 'empty')) dataRows.push({ cells: rows[r], source: r });
   }
 
   const keep: number[] = [];
   for (let c = 0; c < width; c += 1) {
-    if (headerParts[c].length > 0 || dataRows.some((row) => cellKind(row[c] ?? null) !== 'empty')) {
+    if (headerParts[c].length > 0 || dataRows.some(({ cells }) => cellKind(cells[c] ?? null) !== 'empty')) {
       keep.push(c);
     }
   }
@@ -276,14 +332,58 @@ function blockToSheet(
   const headers = uniqueHeaders(
     keep.map((c) => (headerParts[c].length > 0 ? headerParts[c].join(' / ') : `列${columnLetter(c)}`)),
   );
-  return {
-    name,
-    headers,
-    rows: dataRows.map((row) => keep.map((c) => cellToText(row[c] ?? null))),
-  };
+  const raw = dataRows.map(({ cells }) => keep.map((c) => cellToText(cells[c] ?? null)));
+  const sheet: SheetData = { name, headers, rows: raw };
+
+  let anyDisplay = false;
+  const display = dataRows.map(({ source }, i) =>
+    keep.map((c, j) => {
+      const text = displayText(rows[source][c] ?? null, formatFor(source, c), formatFor.spreadsheet);
+      if (text === null || text === raw[i][j]) return null;
+      anyDisplay = true;
+      return text;
+    }),
+  );
+  if (anyDisplay) sheet.display = display;
+  return { table: sheet, rows: dataRows.map(({ source }) => source), cols: keep };
 }
 
-export function normalizeSheet(sheet: RawSheet, notes: string[] = []): SheetData[] {
+/** What Excel shows for a cell under its number format; null when it shows the raw value. */
+function displayText(cell: GridCell, code: string | null, spreadsheet: boolean): string | null {
+  if (cell === null) return null;
+  // Plain numbers in a spreadsheet show like Excel's General (3.14159265358979 -> 3.141592654).
+  if (typeof cell === 'number' && spreadsheet) return formatNumber(cell, code ?? 'General') ?? formatGeneral(cell);
+  if (code === null) return null;
+  if (typeof cell === 'number') return formatNumber(cell, code);
+  if (isDateCell(cell)) return cell.serial === undefined ? null : formatNumber(cell.serial, code);
+  if (typeof cell === 'string') return formatText(cell, code);
+  return null;
+}
+
+/**
+ * One imported table plus where each of its cells came from: data row i is sheet row
+ * `rows[i]`, column j is sheet column `cols[j]` (0-based, relative to `RawSheet.cells`;
+ * add `RawSheet.origin` for the sheet address).
+ */
+export interface ImportedTable {
+  table: SheetData;
+  rows: number[];
+  cols: number[];
+}
+
+export function normalizeSheet(
+  sheet: RawSheet,
+  notes: string[] = [],
+  source: { spreadsheet: boolean; date1904: boolean } = { spreadsheet: false, date1904: false },
+): SheetData[] {
+  return normalizeSheetDetailed(sheet, notes, source).map((t) => t.table);
+}
+
+export function normalizeSheetDetailed(
+  sheet: RawSheet,
+  notes: string[] = [],
+  source: { spreadsheet: boolean; date1904: boolean } = { spreadsheet: false, date1904: false },
+): ImportedTable[] {
   const width = sheet.cells.reduce((m, row) => Math.max(m, row.length), 0);
   if (width === 0) return [];
   const rows = sheet.cells.map((row) => {
@@ -291,11 +391,14 @@ export function normalizeSheet(sheet: RawSheet, notes: string[] = []): SheetData
     while (copy.length < width) copy.push(null);
     return copy;
   });
-  fillVerticalMerges(rows, sheet.merges);
+  const cellFormats = sheet.cellFormats.map((row) => row.slice());
+  const formatFor = formatLookup({ ...sheet, cellFormats }, source.spreadsheet, source.date1904);
+  if (formatFor.knowsFormats) classifyDates(rows, formatFor);
+  fillVerticalMerges(rows, cellFormats, sheet.merges);
   const profiles = rows.map(profileRow);
   const blocks = segment(profiles, sheet.merges, width);
 
-  const tables: SheetData[] = [];
+  const tables: ImportedTable[] = [];
   let previousEnd = 0;
   blocks.forEach((block, idx) => {
     const title = blockTitle(rows, profiles, previousEnd, block.headerStart);
@@ -314,8 +417,8 @@ export function normalizeSheet(sheet: RawSheet, notes: string[] = []): SheetData
       const label = title.length > BLOCK_TITLE_MAX ? `${title.slice(0, BLOCK_TITLE_MAX)}…` : title;
       name = `${sheet.name} · ${label || `表${idx + 1}`}`;
     }
-    const table = blockToSheet(rows, sheet.merges, block, width, name);
-    if (table.headers.length > 0) tables.push(table);
+    const imported = blockToSheet(rows, sheet.merges, block, width, name, formatFor);
+    if (imported.table.headers.length > 0) tables.push(imported);
     for (let r = block.footerStart; r < block.end; r += 1) {
       const note = rows[r].find((c) => cellKind(c) !== 'empty') ?? null;
       if (note !== null) notes.push(`${sheet.name}：表尾说明“${cellToText(note).trim()}”未作为数据行导入`);
@@ -324,7 +427,7 @@ export function normalizeSheet(sheet: RawSheet, notes: string[] = []): SheetData
   return tables;
 }
 
-export function normalizeWorkbook(workbook: RawWorkbook): NormalizedWorkbook {
+export function normalizeWorkbook(workbook: RawWorkbook, spreadsheet: boolean): NormalizedWorkbook {
   const notices = [...workbook.notices];
   const sheets: SheetData[] = [];
   const skipped: string[] = [];
@@ -332,7 +435,7 @@ export function normalizeWorkbook(workbook: RawWorkbook): NormalizedWorkbook {
   let uncached = 0;
 
   for (const raw of workbook.sheets) {
-    const tables = normalizeSheet(raw, notices);
+    const tables = normalizeSheet(raw, notices, { spreadsheet, date1904: workbook.date1904 });
     if (tables.length === 0) {
       skipped.push(raw.name);
       continue;

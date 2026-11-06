@@ -75,7 +75,9 @@ function finish(fileName: string, ext: string, sheets: SheetData[], notices: str
 }
 
 function fromWorkbook(fileName: string, ext: string, workbook: RawWorkbook, extra: string[] = []): ImportResult {
-  const normalized = normalizeWorkbook(workbook);
+  // CSV / TSV text stays as typed; only spreadsheet cells render through Excel's General.
+  const spreadsheet = (SPREADSHEET_EXTENSIONS as readonly string[]).includes(ext);
+  const normalized = normalizeWorkbook(workbook, spreadsheet);
   return finish(fileName, ext, normalized.sheets, [...extra, ...normalized.notices]);
 }
 

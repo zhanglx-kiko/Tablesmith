@@ -13,14 +13,19 @@ use std::path::Path;
 use calamine::{open_workbook_auto, Data, Range, Reader, SheetType, SheetVisible, Sheets};
 use encoding_rs::{Encoding, GB18030, UTF_16BE, UTF_16LE};
 use serde::Serialize;
+use std::collections::HashMap;
+
+use crate::binary_formats::{read_xls_formats, read_xlsb_formats};
+use crate::xlsx_formats::{read_xlsx_formats, SheetFormats};
 
 /// Files above this size are rejected before parsing; mirrors MAX_IMPORT_BYTES in index.ts.
 pub const MAX_IMPORT_BYTES: u64 = 200 * 1024 * 1024;
 
 pub const SPREADSHEET_EXTENSIONS: &[&str] = &["xlsx", "xlsm", "xlsb", "xls", "ods"];
-/// calamine silently drops cells in some xlsb files and rejects ods written by other
-/// tools, so these always go to SheetJS on the frontend.
-const FRONTEND_ONLY_EXTENSIONS: &[&str] = &["xlsb", "ods"];
+/// calamine rejects ods written by other tools, so ods always goes to SheetJS on the
+/// frontend. xlsb is read here; files whose sheets come back empty (SheetJS-written xlsb
+/// lack the row index calamine relies on) are detected in `read_payload` and handed over.
+const FRONTEND_ONLY_EXTENSIONS: &[&str] = &["ods"];
 pub const TEXT_EXTENSIONS: &[&str] = &[
     "csv", "tsv", "txt", "json", "jsonl", "ndjson", "xml", "xsd", "yaml", "yml",
 ];
@@ -35,8 +40,15 @@ pub enum GridCell {
     Text(String),
     Number(f64),
     Bool(bool),
-    Date { date: String },
-    Error { error: String },
+    /// `serial` is the Excel date number, kept so the frontend can apply the cell's format.
+    Date {
+        date: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        serial: Option<f64>,
+    },
+    Error {
+        error: String,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -44,16 +56,30 @@ pub enum GridCell {
 pub struct RawSheet {
     pub name: String,
     pub hidden: bool,
+    /// Sheet address (0-based row, col) of `cells[0][0]`.
+    pub origin: [u32; 2],
     pub cells: Vec<Vec<GridCell>>,
     /// Inclusive `[first_row, first_col, last_row, last_col]`, relative to `cells`.
     pub merges: Vec<[u32; 4]>,
     pub uncached_formulas: usize,
+    /// Number format codes used in the sheet; `#14` means built-in id 14 (resolved in
+    /// numberFormat.ts). Empty when the reader has no format information.
+    pub formats: Vec<String>,
+    /// Same shape as `cells`: index into `formats`, or -1 for General.
+    pub cell_formats: Vec<Vec<i32>>,
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RawWorkbook {
     pub sheets: Vec<RawSheet>,
     pub notices: Vec<String>,
+    /// Serial 0 is 1904-01-01 (Mac workbooks); the frontend needs it to turn serials into dates.
+    pub date1904: bool,
+    /// calamine skips xlsb cells that are not preceded by a row header (SheetJS writes
+    /// them that way); set when the format reader saw cells the grid lacks.
+    #[serde(skip)]
+    pub lost_cells: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -111,6 +137,9 @@ pub fn read_payload(path: &str) -> Result<ReadPayload, String> {
         if bytes.starts_with(&ZIP_MAGIC) || bytes.starts_with(&OLE_MAGIC) {
             drop(bytes);
             return Ok(match read_workbook(p) {
+                Ok(workbook) if workbook.lost_cells => ReadPayload::Unparsed {
+                    reason: "单元格读取不完整，改由前端解析".into(),
+                },
                 Ok(workbook) => ReadPayload::Workbook { workbook },
                 Err(reason) if reason.contains("密码") => return Err(reason),
                 Err(reason) => ReadPayload::Unparsed { reason },
@@ -163,18 +192,6 @@ fn format_iso_datetime(iso: &str) -> String {
     format!("{date} {time}")
 }
 
-fn format_duration(serial: f64) -> String {
-    let total = (serial * 86_400.0).round() as i64;
-    let sign = if total < 0 { "-" } else { "" };
-    let total = total.abs();
-    format!(
-        "{sign}{}:{:02}:{:02}",
-        total / 3600,
-        (total / 60) % 60,
-        total % 60
-    )
-}
-
 fn to_grid_cell(cell: &Data) -> GridCell {
     match cell {
         Data::Empty => GridCell::Null,
@@ -185,20 +202,23 @@ fn to_grid_cell(cell: &Data) -> GridCell {
         Data::Bool(b) => GridCell::Bool(*b),
         Data::DateTime(dt) => {
             let serial = dt.as_f64();
-            if dt.is_duration() {
-                return GridCell::Date {
-                    date: format_duration(serial),
-                };
+            // Durations (`[h]:mm:ss`) are dates too as far as the stored value goes; the
+            // elapsed-time text comes from the cell's format on the frontend.
+            // Negative serials are not dates (Excel shows ####); keep the number, as SheetJS does.
+            if serial < 0.0 {
+                return GridCell::Number(serial);
             }
             match dt.as_datetime() {
                 Some(value) => GridCell::Date {
                     date: format_excel_datetime(serial, value),
+                    serial: Some(serial),
                 },
                 None => GridCell::Number(serial),
             }
         }
         Data::DateTimeIso(s) => GridCell::Date {
             date: format_iso_datetime(s),
+            serial: None,
         },
         Data::DurationIso(s) => GridCell::Text(s.clone()),
         Data::Error(e) => GridCell::Error {
@@ -225,6 +245,103 @@ fn range_to_grid(range: &Range<Data>) -> (Vec<Vec<GridCell>>, (u32, u32)) {
         cells.pop();
     }
     (cells, start)
+}
+
+/// Put formula errors calamine dropped back into the grid (positions are absolute). An
+/// error above / left of the first cell calamine kept moves the origin, so it is returned.
+fn restore_errors(
+    cells: &mut Vec<Vec<GridCell>>,
+    origin: (u32, u32),
+    errors: &[((u32, u32), &'static str)],
+) -> (u32, u32) {
+    if errors.is_empty() {
+        return origin;
+    }
+    let start = if cells.is_empty() {
+        (u32::MAX, u32::MAX)
+    } else {
+        origin
+    };
+    let new_origin = errors
+        .iter()
+        .fold(start, |o, &((r, c), _)| (o.0.min(r), o.1.min(c)));
+    if !cells.is_empty() {
+        let dr = (origin.0 - new_origin.0) as usize;
+        let dc = (origin.1 - new_origin.1) as usize;
+        cells.splice(0..0, std::iter::repeat_with(Vec::new).take(dr));
+        for row in cells.iter_mut().filter(|r| !r.is_empty()) {
+            row.splice(0..0, std::iter::repeat_with(|| GridCell::Null).take(dc));
+        }
+    }
+    for &((r, c), text) in errors {
+        let (r, c) = ((r - new_origin.0) as usize, (c - new_origin.1) as usize);
+        if cells.len() <= r {
+            cells.resize_with(r + 1, Vec::new);
+        }
+        let row = &mut cells[r];
+        if row.len() <= c {
+            row.resize_with(c + 1, || GridCell::Null);
+        }
+        if row[c] == GridCell::Null {
+            row[c] = GridCell::Error {
+                error: text.to_string(),
+            };
+        }
+    }
+    new_origin
+}
+
+/// Replace calamine's text with Excel's where the whitespace rule changes it. A text that
+/// becomes empty becomes a blank cell, as in Excel.
+fn apply_excel_text(
+    cells: &mut [Vec<GridCell>],
+    origin: (u32, u32),
+    texts: &HashMap<(u32, u32), String>,
+) {
+    for (&(r, c), text) in texts {
+        let (Some(r), Some(c)) = (r.checked_sub(origin.0), c.checked_sub(origin.1)) else {
+            continue;
+        };
+        if let Some(cell @ GridCell::Text(_)) = cells
+            .get_mut(r as usize)
+            .and_then(|row| row.get_mut(c as usize))
+        {
+            *cell = if text.is_empty() {
+                GridCell::Null
+            } else {
+                GridCell::Text(text.clone())
+            };
+        }
+    }
+}
+
+fn grid_cell_count(cells: &[Vec<GridCell>]) -> usize {
+    cells
+        .iter()
+        .map(|r| r.iter().filter(|c| **c != GridCell::Null).count())
+        .sum()
+}
+
+/// Per-cell format indexes aligned with `cells` (which start at `origin`).
+fn grid_formats(
+    cells: &[Vec<GridCell>],
+    origin: (u32, u32),
+    f: SheetFormats,
+) -> (Vec<String>, Vec<Vec<i32>>) {
+    let grid = cells
+        .iter()
+        .enumerate()
+        .map(|(r, row)| {
+            (0..row.len())
+                .map(|c| {
+                    f.cells
+                        .get(&(origin.0 + r as u32, origin.1 + c as u32))
+                        .map_or(-1, |&i| i as i32)
+                })
+                .collect()
+        })
+        .collect();
+    (f.codes, grid)
 }
 
 /// calamine merge regions are absolute; the grid starts at the first used cell.
@@ -293,9 +410,19 @@ fn describe_open_error(err: calamine::Error) -> String {
 
 pub fn read_workbook(path: &Path) -> Result<RawWorkbook, String> {
     let mut workbook = open_workbook_auto(path).map_err(describe_open_error)?;
+    let reader = || fs::File::open(path).map(std::io::BufReader::new);
+    let mut sheet_formats = match &workbook {
+        Sheets::Xlsx(_) => reader().map(read_xlsx_formats).unwrap_or_default(),
+        Sheets::Xlsb(_) => reader().map(read_xlsb_formats).unwrap_or_default(),
+        Sheets::Xls(_) => reader().map(read_xls_formats).unwrap_or_default(),
+        Sheets::Ods(_) => Default::default(),
+    };
+    let date1904 = sheet_formats.date1904;
+    let mut sheet_formats = std::mem::take(&mut sheet_formats.sheets);
     let metadata: Vec<calamine::Sheet> = workbook.sheets_metadata().to_vec();
     let mut sheets = Vec::new();
     let mut notices = Vec::new();
+    let mut lost_cells = false;
 
     for meta in metadata {
         if meta.typ != SheetType::WorkSheet {
@@ -308,18 +435,44 @@ pub fn read_workbook(path: &Path) -> Result<RawWorkbook, String> {
                 continue;
             }
         };
-        let (cells, origin) = range_to_grid(&range);
-        let merges = relative_merges(&sheet_merges(&mut workbook, &meta.name), origin);
+        let (mut cells, mut origin) = range_to_grid(&range);
+        if let Some(f) = sheet_formats.get(&meta.name) {
+            origin = restore_errors(&mut cells, origin, &f.errors);
+            apply_excel_text(&mut cells, origin, &f.texts);
+        }
+        let mut merge_dims = sheet_merges(&mut workbook, &meta.name);
         let uncached_formulas = count_uncached_formulas(&mut workbook, &meta.name, &range);
+        let (formats, cell_formats) = match sheet_formats.remove(&meta.name) {
+            Some(mut f) => {
+                lost_cells |= f.valued > grid_cell_count(&cells);
+                merge_dims.extend(f.merges.drain(..).map(|(r1, c1, r2, c2)| {
+                    calamine::Dimensions {
+                        start: (r1, c1),
+                        end: (r2, c2),
+                    }
+                }));
+                grid_formats(&cells, origin, f)
+            }
+            None => (Vec::new(), Vec::new()),
+        };
+        let merges = relative_merges(&merge_dims, origin);
         sheets.push(RawSheet {
             name: meta.name,
             hidden: meta.visible != SheetVisible::Visible,
+            origin: [origin.0, origin.1],
             cells,
             merges,
             uncached_formulas,
+            formats,
+            cell_formats,
         });
     }
-    Ok(RawWorkbook { sheets, notices })
+    Ok(RawWorkbook {
+        sheets,
+        notices,
+        date1904,
+        lost_cells,
+    })
 }
 
 // ── text ─────────────────────────────────────────────────────────────
@@ -423,25 +576,16 @@ mod tests {
             let wb = workbook(&format!("report_layouts.{ext}")).expect(ext);
             let typed = wb.sheets.iter().find(|s| s.name == "类型样例").expect(ext);
             let row = &typed.cells[1];
-            assert_eq!(
-                row[1],
-                GridCell::Date {
-                    date: "2024-01-31".into()
-                },
-                "{ext}"
-            );
-            assert_eq!(
-                row[2],
-                GridCell::Date {
-                    date: "13:45:00".into()
-                },
-                "{ext}"
-            );
-            assert_eq!(
-                row[3],
-                GridCell::Date {
-                    date: "2024-02-01 09:30:15".into()
-                },
+            let date_text = |c: &GridCell| match c {
+                GridCell::Date { date, .. } => date.clone(),
+                other => format!("{other:?}"),
+            };
+            assert_eq!(date_text(&row[1]), "2024-01-31", "{ext}");
+            assert_eq!(date_text(&row[2]), "13:45:00", "{ext}");
+            assert_eq!(date_text(&row[3]), "2024-02-01 09:30:15", "{ext}");
+            // The serial is kept so the frontend can render the cell's Excel format.
+            assert!(
+                matches!(row[1], GridCell::Date { serial: Some(s), .. } if s == 45322.0),
                 "{ext}"
             );
             assert_eq!(row[4], GridCell::Number(1234.5), "{ext}");

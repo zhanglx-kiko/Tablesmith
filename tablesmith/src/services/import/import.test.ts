@@ -6,7 +6,7 @@ import { formatNumber, looksDate, looksNumeric } from './cellText';
 import { decodeText } from './decode';
 import { ImportError, parseClipboardText, parseDesktopPayload, parseFileBytes } from './index';
 import { normalizeSheet } from './normalize';
-import type { GridCell } from './types';
+import type { GridCell, RawSheet } from './types';
 
 const FIXTURES = join(__dirname, '../../../sample-data/edge-cases');
 const REAL_DATA = 'D:/tmp/excel';
@@ -28,16 +28,23 @@ function column(s: SheetData, header: string): string[] {
   return s.rows.map((r) => r[idx]);
 }
 
-function raw(cells: GridCell[][], merges: [number, number, number, number][] = []) {
-  return { name: 'S', hidden: false, cells, merges, uncachedFormulas: 0 };
+function raw(cells: GridCell[][], merges: [number, number, number, number][] = []): RawSheet {
+  return { name: 'S', hidden: false, origin: [0, 0], cells, merges, uncachedFormulas: 0, formats: [], cellFormats: [] };
 }
 
 describe('cell text helpers', () => {
-  it('formats floats like a spreadsheet', () => {
-    expect(formatNumber(0.1 + 0.2)).toBe('0.3');
+  it('keeps the exact stored double as raw text', () => {
+    // Red line: the raw value reads back as the very same double. Excel's 15-digit
+    // rendering (0.3) is display-only, see numberFormat.ts.
+    expect(formatNumber(0.1 + 0.2)).toBe('0.30000000000000004');
+    expect(formatNumber(45351.57326388889)).toBe('45351.57326388889');
     expect(formatNumber(1e-7)).toBe('0.0000001');
     expect(formatNumber(347826898.63)).toBe('347826898.63');
     expect(formatNumber(-0.75)).toBe('-0.75');
+    for (let i = 0; i < 20000; i += 1) {
+      const v = (Math.random() - 0.5) * 10 ** Math.floor(Math.random() * 40 - 20);
+      expect(Number(formatNumber(v))).toBe(v);
+    }
   });
 
   it('separates numbers, dates and labels', () => {
@@ -192,7 +199,7 @@ describe('entry points', () => {
   it('accepts the desktop workbook payload', () => {
     const { file } = parseDesktopPayload('a.xlsx', {
       kind: 'workbook',
-      workbook: { sheets: [raw([['A'], ['1']])], notices: ['x'] },
+      workbook: { sheets: [raw([['A'], ['1']])], notices: ['x'], date1904: false },
     });
     expect(file.sheets[0].headers).toEqual(['A']);
   });
@@ -213,7 +220,8 @@ describe.skipIf(!existsSync(REAL_DATA))('D:/tmp/excel real-world files', () => {
     expect(summary.rows[0][1]).toBe('347826898.63');
     const revenue = sheet(file.sheets, 'Revenue Build');
     expect(revenue.headers.slice(0, 3)).toEqual(['Month', '2024-01', '2024-02']);
-    expect(revenue.rows.some((r) => r[0] === '  Cloud Services')).toBe(true);
+    // Stored as `<v>  Cloud Services</v>` without xml:space: Excel drops the indent, so do we.
+    expect(revenue.rows.some((r) => r[0] === 'Cloud Services')).toBe(true);
     expect(sheet(file.sheets, 'Sales Detail').rows).toHaveLength(8640);
     expect(file.sheets.some((s) => s.name.startsWith('Assumptions · Opening Balance'))).toBe(true);
   });

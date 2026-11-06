@@ -3149,8 +3149,11 @@ name = "tablesmith"
 version = "0.1.0"
 dependencies = [
  "calamine",
+ "cfb",
  "chrono",
+ "codepage",
  "encoding_rs",
+ "quick-xml 0.37.5",
  "serde",
  "serde_json",
  "tauri",
@@ -3158,6 +3161,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-fs",
  "tauri-plugin-shell",
+ "zip",
 ]
 
 [[package]]
