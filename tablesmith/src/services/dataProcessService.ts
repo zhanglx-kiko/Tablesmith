@@ -356,8 +356,33 @@ export function maskColumnData(
 
 // ---------------- 多表合并与关联 (Join & Union) ----------------
 
+export interface JoinStats {
+  /** Main-table rows that found a match. */
+  matched: number;
+  /** Main-table rows with no match (kept empty in a left join, dropped in an inner join). */
+  unmatched: number;
+  /** Keys that appear more than once in the second table, with how many times. */
+  duplicateKeys: { key: string; count: number }[];
+}
+
 /**
- * Horizontally merge (JOIN) two sheets based on a shared key column.
+ * Key text used for matching: trimmed, and plain numbers by value so "199" in one file
+ * matches "199.00" in another. Other text must match exactly.
+ */
+export function joinKey(v: string): string {
+  const t = (v ?? '').trim();
+  if (/^-?(?:\d+\.?\d*|\.\d+)$/.test(t)) {
+    const n = Number(t);
+    if (Number.isFinite(n)) return `#${n}`;
+  }
+  return t;
+}
+
+/**
+ * Horizontally merge (JOIN) two sheets on a key column, like VLOOKUP: each main-table
+ * row takes the first matching row of the second table. A key repeated in the second
+ * table is reported in `stats.duplicateKeys` (the other matches are not used), never
+ * dropped silently.
  */
 export function joinSheets(
   sheetA: SheetData,
@@ -365,50 +390,51 @@ export function joinSheets(
   keyColA: string,
   keyColB: string,
   joinType: 'left' | 'inner' = 'left',
-): SheetData {
+): { result: SheetData; stats: JoinStats } {
   const idxA = sheetA.headers.indexOf(keyColA);
   const idxB = sheetB.headers.indexOf(keyColB);
+  if (idxA < 0 || idxB < 0) {
+    return { result: sheetA, stats: { matched: 0, unmatched: sheetA.rows.length, duplicateKeys: [] } };
+  }
 
-  if (idxA < 0 || idxB < 0) return sheetA;
-
-  // Build lookup index for Sheet B
   const bMap = new Map<string, string[]>();
+  const counts = new Map<string, { key: string; count: number }>();
   for (const rowB of sheetB.rows) {
-    const key = String(rowB[idxB] ?? '').trim();
-    if (key && !bMap.has(key)) {
-      bMap.set(key, rowB);
-    }
+    const raw = String(rowB[idxB] ?? '');
+    const key = joinKey(raw);
+    if (!key) continue;
+    if (!bMap.has(key)) bMap.set(key, rowB);
+    const c = counts.get(key);
+    if (c) c.count += 1;
+    else counts.set(key, { key: raw.trim(), count: 1 });
   }
 
   // Combine headers (avoid duplicate names by suffixing SheetB's name)
   const bHeadersWithoutKey = sheetB.headers.filter((_, i) => i !== idxB);
   const combinedHeaders = [
     ...sheetA.headers,
-    ...bHeadersWithoutKey.map((h) =>
-      sheetA.headers.includes(h) ? `${h}_(${sheetB.name})` : h,
-    ),
+    ...bHeadersWithoutKey.map((h) => (sheetA.headers.includes(h) ? `${h}_(${sheetB.name})` : h)),
   ];
-
   const emptyBRow = bHeadersWithoutKey.map(() => '');
-
   const combinedRows: string[][] = [];
-
+  let matched = 0;
   for (const rowA of sheetA.rows) {
-    const key = String(rowA[idxA] ?? '').trim();
-    const matchedB = bMap.get(key);
-
+    const matchedB = bMap.get(joinKey(String(rowA[idxA] ?? '')));
     if (matchedB) {
-      const bValsWithoutKey = matchedB.filter((_, i) => i !== idxB);
-      combinedRows.push([...rowA, ...bValsWithoutKey]);
+      matched += 1;
+      combinedRows.push([...rowA, ...matchedB.filter((_, i) => i !== idxB)]);
     } else if (joinType === 'left') {
       combinedRows.push([...rowA, ...emptyBRow]);
     }
   }
 
   return {
-    name: `${sheetA.name}_JOIN_${sheetB.name}`,
-    headers: combinedHeaders,
-    rows: combinedRows,
+    result: { name: `${sheetA.name}_JOIN_${sheetB.name}`, headers: combinedHeaders, rows: combinedRows },
+    stats: {
+      matched,
+      unmatched: sheetA.rows.length - matched,
+      duplicateKeys: [...counts.values()].filter((c) => c.count > 1),
+    },
   };
 }
 

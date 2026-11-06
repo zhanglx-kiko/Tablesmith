@@ -29,6 +29,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { ReadFileResponse } from '../services/import';
 import type { SheetData } from '../types';
 import { exportFile, saveExport } from '../services/fileService';
+import { CompareError, compareSheets, compareToSheet, type CompareResult } from '../services/compareService';
 import {
   RecipeError,
   describeStep,
@@ -350,7 +351,11 @@ const ProcessView: React.FC = () => {
   };
 
   // ---------------- Multi-table Join & Merge state ----------------
-  const [mergeMode, setMergeMode] = useState<'join' | 'union'>('join');
+  const [mergeMode, setMergeMode] = useState<'join' | 'union' | 'compare'>('join');
+  const [compareKeys, setCompareKeys] = useState<string[]>([]);
+  const [compareIgnoreWs, setCompareIgnoreWs] = useState(false);
+  const [compareIgnoreCase, setCompareIgnoreCase] = useState(false);
+  const [compareSummary, setCompareSummary] = useState<CompareResult | null>(null);
   const [targetFileIdx, setTargetFileIdx] = useState<number>(0);
   const [targetSheetIdx, setTargetSheetIdx] = useState<number>(0);
   const [joinKeyA, setJoinKeyA] = useState<string>('');
@@ -359,6 +364,12 @@ const ProcessView: React.FC = () => {
 
   const targetFile = files[targetFileIdx] ?? null;
   const targetSheet = targetFile?.sheets[targetSheetIdx] ?? null;
+  /** How the other table is named in step labels: "file" or "file / sheet" when it has several. */
+  const targetLabel = targetFile
+    ? targetFile.sheets.length > 1 && targetSheet
+      ? `${targetFile.fileName} / ${targetSheet.name}`
+      : targetFile.fileName
+    : '';
 
   useEffect(() => {
     if (workingSheet && workingSheet.headers.length > 0) {
@@ -372,6 +383,37 @@ const ProcessView: React.FC = () => {
     }
   }, [targetSheet]);
 
+  const commonColumns = useMemo(
+    () => (workingSheet && targetSheet ? workingSheet.headers.filter((h) => targetSheet.headers.includes(h)) : []),
+    [workingSheet, targetSheet],
+  );
+  const effectiveCompareKeys = useMemo(() => {
+    const chosen = compareKeys.filter((k) => commonColumns.includes(k));
+    if (chosen.length) return chosen;
+    const idLike = commonColumns.find((h) => /(^|[^a-z])(id|code|no|key)([^a-z]|$)|编号|单号|代码/i.test(h));
+    return idLike ? [idLike] : commonColumns.slice(0, 1);
+  }, [compareKeys, commonColumns]);
+
+  const handleApplyCompare = () => {
+    if (!workingSheet || !targetSheet) {
+      showToast('请选择要对比的另一张表');
+      return;
+    }
+    try {
+      const summary = compareSheets(workingSheet, targetSheet, {
+        keys: effectiveCompareKeys,
+        ignoreWhitespace: compareIgnoreWs,
+        ignoreCase: compareIgnoreCase,
+      });
+      const thisLabel = activeFile?.sheets.length && activeFile.sheets.length > 1 ? `${activeFile.fileName} ${workingSheet.name}` : activeFile?.fileName ?? workingSheet.name;
+      const table = compareToSheet(summary, workingSheet, targetSheet, `对比 ${thisLabel} vs ${targetLabel}`);
+      setCompareSummary(summary);
+      record(null, table, `按「${effectiveCompareKeys.join('+')}」对比「${targetLabel}」`);
+    } catch (err) {
+      showGlobalToast({ type: 'error', title: '无法对比', message: err instanceof CompareError ? err.message : String(err) });
+    }
+  };
+
   const handleApplyMerge = () => {
     if (!workingSheet || !targetSheet) {
       showToast('请选择目标关联表格');
@@ -382,12 +424,20 @@ const ProcessView: React.FC = () => {
         showToast('请选择关联比对的主键列');
         return;
       }
-      const result = joinSheets(workingSheet, targetSheet, joinKeyA, joinKeyB, joinType);
-      record(null, result, `按「${joinKeyA}」=「${joinKeyB}」关联「${targetSheet.name}」`);
-      showToast(`关联完成：生成新合并表 (${result.rows.length} 行 × ${result.headers.length} 列)`);
+      const { result, stats } = joinSheets(workingSheet, targetSheet, joinKeyA, joinKeyB, joinType);
+      record(null, result, `按「${joinKeyA}」=「${joinKeyB}」关联「${targetLabel}」`);
+      const dup = stats.duplicateKeys;
+      showGlobalToast({
+        type: dup.length || stats.unmatched ? 'info' : 'success',
+        title: `关联完成：${stats.matched} 行匹配，${stats.unmatched} 行未匹配${joinType === 'inner' && stats.unmatched ? '（已去掉）' : ''}`,
+        message: dup.length
+          ? `「${targetLabel}」中有 ${dup.length} 个键重复出现（如 ${dup[0].key} 出现 ${dup[0].count} 次），每行只取第一条匹配，与 VLOOKUP 相同。`
+          : `结果 ${result.rows.length} 行 × ${result.headers.length} 列`,
+        duration: dup.length ? 9000 : 4000,
+      });
     } else {
       const result = unionSheets(workingSheet, targetSheet);
-      record(null, result, `纵向拼接「${targetSheet.name}」`);
+      record(null, result, `纵向拼接「${targetLabel}」`);
       showToast(`纵向拼接完成：生成新合并表 (${result.rows.length} 行 × ${result.headers.length} 列)`);
     }
   };
@@ -413,6 +463,7 @@ const ProcessView: React.FC = () => {
   const handleReset = () => {
     setWorkingSheet(originalSheet);
     setSteps([]);
+    setCompareSummary(null);
     setFilterConditions([]);
     setSelectedColsToDelete([]);
     showToast('已重置为原始数据');
@@ -1350,7 +1401,7 @@ const ProcessView: React.FC = () => {
                     多表关联与拼接
                   </h4>
 
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-3 gap-2">
                     <button
                       onClick={() => setMergeMode('join')}
                       className={`rounded-lg border py-1.5 text-xs transition ${
@@ -1370,6 +1421,17 @@ const ProcessView: React.FC = () => {
                       }`}
                     >
                       纵向拼接 (Union)
+                    </button>
+                    <button
+                      onClick={() => setMergeMode('compare')}
+                      data-testid="merge-mode-compare"
+                      className={`rounded-lg border py-1.5 text-xs transition ${
+                        mergeMode === 'compare'
+                          ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/40 font-semibold text-indigo-700 dark:text-indigo-300'
+                          : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400'
+                      }`}
+                    >
+                      对比差异
                     </button>
                   </div>
 
@@ -1452,18 +1514,86 @@ const ProcessView: React.FC = () => {
                         </select>
                       </div>
                     </div>
-                  ) : (
+                  ) : mergeMode === 'union' ? (
                     <p className="text-xs text-gray-500 dark:text-gray-400">
                       纵向拼接将两张表的行直接上下串联，相同名称的列将自动对齐合并。
                     </p>
+                  ) : (
+                    <div className="space-y-2 border-t border-gray-200 dark:border-gray-700 pt-2.5" data-testid="compare-options">
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                        当前表作为旧版本，所选表作为新版本。按下面的列匹配行，列出新增、删除和修改的行。
+                      </p>
+                      <fieldset>
+                        <legend className="text-[11px] font-medium text-gray-500 dark:text-gray-400">用来匹配行的列（两张表都有的列）</legend>
+                        {commonColumns.length === 0 ? (
+                          <p className="mt-1 text-[11px] text-red-600 dark:text-red-400">两张表没有同名的列，无法对比。</p>
+                        ) : (
+                          <div className="mt-1 max-h-28 space-y-1 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-2">
+                            {commonColumns.map((h) => (
+                              <label key={h} className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-200 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  className="accent-indigo-600"
+                                  checked={effectiveCompareKeys.includes(h)}
+                                  onChange={() =>
+                                    setCompareKeys(
+                                      effectiveCompareKeys.includes(h)
+                                        ? effectiveCompareKeys.filter((k) => k !== h)
+                                        : [...effectiveCompareKeys, h],
+                                    )
+                                  }
+                                />
+                                {h}
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </fieldset>
+                      <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-200 cursor-pointer">
+                        <input type="checkbox" className="accent-indigo-600" checked={compareIgnoreWs} onChange={(e) => setCompareIgnoreWs(e.target.checked)} />
+                        忽略首尾空格
+                      </label>
+                      <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-200 cursor-pointer">
+                        <input type="checkbox" className="accent-indigo-600" checked={compareIgnoreCase} onChange={(e) => setCompareIgnoreCase(e.target.checked)} />
+                        忽略大小写
+                      </label>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400">数字按值比较（199 与 199.00 相同），其余文字逐字比较。</p>
+                    </div>
                   )}
 
                   <button
-                    onClick={handleApplyMerge}
-                    className="w-full rounded-lg bg-indigo-600 py-1.5 text-xs font-medium text-white transition hover:bg-indigo-700 active:scale-95"
+                    onClick={mergeMode === 'compare' ? handleApplyCompare : handleApplyMerge}
+                    disabled={mergeMode === 'compare' && commonColumns.length === 0}
+                    className="w-full rounded-lg bg-indigo-600 py-1.5 text-xs font-medium text-white transition hover:bg-indigo-700 active:scale-95 disabled:opacity-50"
                   >
-                    执行多表合并
+                    {mergeMode === 'join' ? '执行关联' : mergeMode === 'union' ? '执行拼接' : '生成对比结果'}
                   </button>
+
+                  {mergeMode === 'compare' && compareSummary && (
+                    <div data-testid="compare-summary" className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-2.5 text-xs text-gray-700 dark:text-gray-200">
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                        <span>修改 <strong data-count="changed">{compareSummary.changed.length}</strong> 行</span>
+                        <span>新增 <strong data-count="added">{compareSummary.added.length}</strong> 行</span>
+                        <span>删除 <strong data-count="removed">{compareSummary.removed.length}</strong> 行</span>
+                        <span>未变 <strong data-count="unchanged">{compareSummary.unchanged}</strong> 行</span>
+                      </div>
+                      {compareSummary.duplicates.length > 0 && (
+                        <p className="mt-1.5 text-amber-600 dark:text-amber-400">
+                          {compareSummary.duplicates.length} 个匹配值在同一张表里重复出现，这些行没有参与匹配，已在结果中标为「重复键」。可以多选几列让每行唯一。
+                        </p>
+                      )}
+                      {compareSummary.emptyKey.length > 0 && (
+                        <p className="mt-1.5 text-amber-600 dark:text-amber-400">{compareSummary.emptyKey.length} 行的匹配列为空，没有参与对比。</p>
+                      )}
+                      {(compareSummary.onlyOldColumns.length > 0 || compareSummary.onlyNewColumns.length > 0) && (
+                        <p className="mt-1.5 text-gray-500 dark:text-gray-400">
+                          {compareSummary.onlyOldColumns.length > 0 && `只在当前表：${compareSummary.onlyOldColumns.join('、')}。`}
+                          {compareSummary.onlyNewColumns.length > 0 && `只在所选表：${compareSummary.onlyNewColumns.join('、')}。`}
+                          这些列不参与比较。
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
