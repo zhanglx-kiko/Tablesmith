@@ -1,0 +1,9 @@
+[
+  { "name": "sum_region_by_period", "rows": ["region"], "cols": ["period_id"], "value": "net_revenue_usd", "agg": "sum" },
+  { "name": "count_channel", "rows": ["sales_channel"], "cols": [], "value": "sale_id", "agg": "count" },
+  { "name": "avg_units_bu", "rows": ["business_unit_id"], "cols": ["sales_channel"], "value": "units", "agg": "average" },
+  { "name": "max_price_region", "rows": ["region"], "cols": [], "value": "list_price_usd", "agg": "max" },
+  { "name": "min_discount_channel", "rows": ["sales_channel"], "cols": ["region"], "value": "discount_pct", "agg": "min" },
+  { "name": "sum_two_level", "rows": ["region", "sales_channel"], "cols": [], "value": "cogs_usd", "agg": "sum" },
+  { "name": "sum_filtered", "rows": ["business_unit_id"], "cols": ["region"], "value": "units", "agg": "sum", "filter": { "field": "sales_channel", "item": "Direct" } }
+]

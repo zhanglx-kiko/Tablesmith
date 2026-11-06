@@ -1,5 +1,17 @@
 import type { SheetData } from '../types';
 import { parseNumericCell } from '../utils/numberUtils';
+import { formatNumber } from './import/cellText';
+
+/** Excel's (zh-CN) names for value fields and the grand total. */
+const AGG_LABEL: Record<PivotAggType, string> = {
+  sum: '求和项',
+  avg: '平均值项',
+  count: '计数项',
+  distinct: '非重复计数项',
+  max: '最大值项',
+  min: '最小值项',
+};
+const GRAND_TOTAL = '总计';
 
 export type PivotAggType = 'sum' | 'avg' | 'count' | 'distinct' | 'max' | 'min';
 export type PivotValueMode = 'raw' | 'percent_total' | 'percent_row' | 'percent_col';
@@ -118,213 +130,141 @@ export function generatePivotTableWithMeta(sheet: SheetData, config: PivotConfig
   const sortedColKeys = Array.from(colKeySet);
   let sortedRowKeys = Array.from(matrix.keys());
 
-  // Helper: numeric array aggregation
-  const aggregate = (vals: (string | number)[]): number => {
-    if (!vals || vals.length === 0) return 0;
-    if (aggType === 'count') return vals.length;
-    if (aggType === 'distinct') return new Set(vals.map(String)).size;
+  /**
+   * Cell value as Excel's pivot reads it: plain and formatted numbers ("1,200", "$30",
+   * "(5)") count, "12%" is 0.12, anything else is text and is skipped by sum / average /
+   * max / min.
+   */
+  const numberOf = (v: string | number): number => {
+    if (typeof v === 'number') return v;
+    const n = parseNumericCell(v);
+    if (Number.isNaN(n)) return n;
+    return v.trim().endsWith('%') ? n / 100 : n;
+  };
 
-    const nums = vals
-      .map((v) => parseNumericCell(v))
-      .filter((n) => !isNaN(n));
-
-    if (nums.length === 0) return 0;
-
+  /** Aggregate like Excel: null means no value to show (the cell stays blank). */
+  const aggregate = (vals: (string | number)[]): number | null => {
+    const filled = vals.filter((v) => String(v ?? '').trim() !== '');
+    if (filled.length === 0) return null;
+    if (aggType === 'count') return filled.length;
+    if (aggType === 'distinct') return new Set(filled.map((v) => String(v).trim())).size;
+    const nums = filled.map(numberOf).filter((n) => !Number.isNaN(n));
+    if (nums.length === 0) return aggType === 'sum' ? 0 : null;
     switch (aggType) {
       case 'sum':
-        return Number(nums.reduce((a, b) => a + b, 0).toFixed(2));
-      case 'avg': {
-        const sum = nums.reduce((a, b) => a + b, 0);
-        return Number((sum / nums.length).toFixed(2));
-      }
+        return nums.reduce((a, b) => a + b, 0);
+      case 'avg':
+        return nums.reduce((a, b) => a + b, 0) / nums.length;
       case 'max':
-        return Math.max(...nums);
+        return nums.reduce((a, b) => (b > a ? b : a), -Infinity);
       case 'min':
-        return Math.min(...nums);
+        return nums.reduce((a, b) => (b < a ? b : a), Infinity);
       default:
-        return 0;
+        return null;
     }
   };
 
-  // Pre-calculate raw aggregates for each cell and row totals
-  // rawMatrix: compositeRowKey -> colKey -> aggregateNumber
-  const rawMatrix = new Map<string, Map<string, number>>();
-  const rawRowTotals = new Map<string, number>();
-  const rawColTotals = new Map<string, (string | number)[]>();
-  sortedColKeys.forEach((c) => rawColTotals.set(c, []));
-  const rawAllVals: (string | number)[] = [];
-
+  // Aggregate each cell from its source values, and totals from all values of the row,
+  // column or table (an average of averages would be wrong).
+  const cellAgg = new Map<string, Map<string, number | null>>();
+  const rowTotals = new Map<string, number | null>();
+  const colValues = new Map<string, (string | number)[]>(sortedColKeys.map((c) => [c, []]));
+  const allValues: (string | number)[] = [];
   for (const rKey of sortedRowKeys) {
     const rowMap = matrix.get(rKey)!;
-    const colAggs = new Map<string, number>();
-    const rowAllVals: (string | number)[] = [];
-
+    const aggs = new Map<string, number | null>();
+    const rowValues: (string | number)[] = [];
     for (const cKey of sortedColKeys) {
-      const vals = rowMap.get(cKey) || [];
-      const aggVal = vals.length > 0 ? aggregate(vals) : 0;
-      colAggs.set(cKey, aggVal);
-
-      if (vals.length > 0) {
-        rowAllVals.push(...vals);
-        rawColTotals.get(cKey)!.push(...vals);
-        rawAllVals.push(...vals);
-      }
+      const vals = rowMap.get(cKey) ?? [];
+      aggs.set(cKey, vals.length ? aggregate(vals) : null);
+      rowValues.push(...vals);
+      colValues.get(cKey)!.push(...vals);
+      allValues.push(...vals);
     }
-
-    rawMatrix.set(rKey, colAggs);
-    rawRowTotals.set(rKey, rowAllVals.length > 0 ? aggregate(rowAllVals) : 0);
+    cellAgg.set(rKey, aggs);
+    rowTotals.set(rKey, aggregate(rowValues));
   }
+  const colTotals = new Map<string, number | null>(sortedColKeys.map((c) => [c, aggregate(colValues.get(c) ?? [])]));
+  const grandTotal = aggregate(allValues);
 
-  const grandTotal = rawAllVals.length > 0 ? aggregate(rawAllVals) : 0;
-
-  // Sorting rows
   if (sortOrder === 'dim_asc') {
-    sortedRowKeys.sort((a, b) => a.localeCompare(b, 'zh-CN'));
+    sortedRowKeys.sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true }));
   } else if (sortOrder === 'dim_desc') {
-    sortedRowKeys.sort((a, b) => b.localeCompare(a, 'zh-CN'));
+    sortedRowKeys.sort((a, b) => b.localeCompare(a, 'zh-CN', { numeric: true }));
   } else if (sortOrder === 'val_desc') {
-    sortedRowKeys.sort((a, b) => (rawRowTotals.get(b) ?? 0) - (rawRowTotals.get(a) ?? 0));
+    sortedRowKeys.sort((a, b) => (rowTotals.get(b) ?? -Infinity) - (rowTotals.get(a) ?? -Infinity));
   } else if (sortOrder === 'val_asc') {
-    sortedRowKeys.sort((a, b) => (rawRowTotals.get(a) ?? 0) - (rawRowTotals.get(b) ?? 0));
+    sortedRowKeys.sort((a, b) => (rowTotals.get(a) ?? Infinity) - (rowTotals.get(b) ?? Infinity));
   }
 
-  // Pre-calculate column aggregated totals
-  const colAggregates = new Map<string, number>();
-  for (const cKey of sortedColKeys) {
-    const colVals = rawColTotals.get(cKey) || [];
-    colAggregates.set(cKey, colVals.length > 0 ? aggregate(colVals) : 0);
-  }
-
-  // Formatter according to valueMode
   let minVal = Infinity;
   let maxVal = -Infinity;
 
-  const formatCellValue = (val: number, rowTot: number, colTot: number): string => {
-    if (val === 0) return '-';
-    if (val < minVal) minVal = val;
-    if (val > maxVal) maxVal = val;
-
-    switch (valueMode) {
-      case 'percent_total': {
-        if (!grandTotal) return '0.00%';
-        return `${((val / grandTotal) * 100).toFixed(2)}%`;
-      }
-      case 'percent_row': {
-        if (!rowTot) return '0.00%';
-        return `${((val / rowTot) * 100).toFixed(2)}%`;
-      }
-      case 'percent_col': {
-        if (!colTot) return '0.00%';
-        return `${((val / colTot) * 100).toFixed(2)}%`;
-      }
-      case 'raw':
-      default:
-        return String(val);
+  /**
+   * One output cell: raw text keeps the exact number; percentages store the fraction
+   * (0.1234) as raw and "12.34%" as display, like an Excel cell formatted as percent.
+   */
+  const cell = (val: number | null, base: number | null): { raw: string; display: string | null } => {
+    if (val === null) return { raw: '', display: null };
+    if (valueMode === 'raw') {
+      if (val < minVal) minVal = val;
+      if (val > maxVal) maxVal = val;
+      return { raw: formatNumber(val), display: null };
     }
+    if (base === null || base === 0) return { raw: '', display: null };
+    const frac = val / base;
+    if (frac < minVal) minVal = frac;
+    if (frac > maxVal) maxVal = frac;
+    return { raw: formatNumber(frac), display: `${(frac * 100).toFixed(2)}%` };
   };
+  /** Denominator for a body cell under the value mode. */
+  const baseFor = (rTotal: number | null, cTotal: number | null): number | null =>
+    valueMode === 'percent_total' ? grandTotal : valueMode === 'percent_row' ? rTotal : valueMode === 'percent_col' ? cTotal : null;
 
-  // 2. Build headers
-  const headers: string[] = [];
-  if (subRowIdx >= 0 && subRowField) {
-    headers.push(rowField, subRowField);
-  } else {
-    headers.push(rowField);
-  }
-  headers.push(...sortedColKeys);
-  if (showRowTotal) {
-    headers.push('总计汇总');
-  }
+  const hasCols = colIdx >= 0;
+  const twoLevel = subRowIdx >= 0 && Boolean(subRowField);
+  const valueLabel = `${AGG_LABEL[aggType]}:${valueField}`;
+  // Without a column field the single value column is the total; no extra total column.
+  const withRowTotal = showRowTotal && hasCols;
 
-  // 3. Build data rows
+  const headers: string[] = twoLevel ? [rowField, subRowField as string] : [rowField];
+  headers.push(...(hasCols ? sortedColKeys : [valueLabel]));
+  if (withRowTotal) headers.push(GRAND_TOTAL);
+
   const resultRows: string[][] = [];
+  const resultDisplay: (string | null)[][] = [];
+  const pushRow = (labels: string[], cells: { raw: string; display: string | null }[]) => {
+    resultRows.push([...labels, ...cells.map((c) => c.raw)]);
+    resultDisplay.push([...labels.map(() => null), ...cells.map((c) => c.display)]);
+  };
 
   for (const rKey of sortedRowKeys) {
     const meta = rowMetaMap.get(rKey)!;
-    const rowCells: string[] = [];
-    if (subRowIdx >= 0 && subRowField) {
-      rowCells.push(meta.primary, meta.secondary || '-');
-    } else {
-      rowCells.push(meta.primary);
-    }
-
-    const colAggs = rawMatrix.get(rKey)!;
-    const rTotal = rawRowTotals.get(rKey) ?? 0;
-
-    for (const cKey of sortedColKeys) {
-      const cellVal = colAggs.get(cKey) ?? 0;
-      const cTotal = colAggregates.get(cKey) ?? 0;
-      rowCells.push(formatCellValue(cellVal, rTotal, cTotal));
-    }
-
-    if (showRowTotal) {
-      if (valueMode === 'percent_total') {
-        const pct = grandTotal ? `${((rTotal / grandTotal) * 100).toFixed(2)}%` : '0.00%';
-        rowCells.push(pct);
-      } else if (valueMode === 'percent_row') {
-        rowCells.push('100.00%');
-      } else if (valueMode === 'percent_col') {
-        const pct = grandTotal ? `${((rTotal / grandTotal) * 100).toFixed(2)}%` : '0.00%';
-        rowCells.push(pct);
-      } else {
-        rowCells.push(String(rTotal));
-      }
-    }
-
-    resultRows.push(rowCells);
+    const rTotal = rowTotals.get(rKey) ?? null;
+    const cells = sortedColKeys.map((cKey) => cell(cellAgg.get(rKey)?.get(cKey) ?? null, baseFor(rTotal, colTotals.get(cKey) ?? null)));
+    if (withRowTotal) cells.push(cell(rTotal, valueMode === 'percent_row' ? rTotal : baseFor(rTotal, grandTotal)));
+    pushRow(twoLevel ? [meta.primary, meta.secondary ?? ''] : [meta.primary], cells);
   }
 
-  // 4. Grand Total row at the bottom
   if (showColTotal) {
-    const totalRow: string[] = [];
-    if (subRowIdx >= 0 && subRowField) {
-      totalRow.push('总计汇总', '-');
-    } else {
-      totalRow.push('总计汇总');
-    }
-
-    for (const cKey of sortedColKeys) {
-      const cTotal = colAggregates.get(cKey) ?? 0;
-      if (valueMode === 'percent_total') {
-        const pct = grandTotal ? `${((cTotal / grandTotal) * 100).toFixed(2)}%` : '0.00%';
-        totalRow.push(pct);
-      } else if (valueMode === 'percent_col') {
-        totalRow.push('100.00%');
-      } else if (valueMode === 'percent_row') {
-        const pct = grandTotal ? `${((cTotal / grandTotal) * 100).toFixed(2)}%` : '0.00%';
-        totalRow.push(pct);
-      } else {
-        totalRow.push(String(cTotal));
-      }
-    }
-
-    if (showRowTotal) {
-      if (valueMode === 'percent_total' || valueMode === 'percent_row' || valueMode === 'percent_col') {
-        totalRow.push('100.00%');
-      } else {
-        totalRow.push(String(grandTotal));
-      }
-    }
-
-    resultRows.push(totalRow);
+    const cells = sortedColKeys.map((cKey) => {
+      const cTotal = colTotals.get(cKey) ?? null;
+      return cell(cTotal, valueMode === 'percent_col' ? cTotal : baseFor(grandTotal, cTotal));
+    });
+    if (withRowTotal) cells.push(cell(grandTotal, valueMode === 'raw' ? null : grandTotal));
+    pushRow(twoLevel ? [GRAND_TOTAL, ''] : [GRAND_TOTAL], cells);
   }
 
   if (minVal === Infinity) minVal = 0;
   if (maxVal === -Infinity) maxVal = 0;
 
-  const aggLabelMap: Record<PivotAggType, string> = {
-    sum: '求和',
-    avg: '均值',
-    count: '计数',
-    distinct: '去重数',
-    max: '最大值',
-    min: '最小值',
-  };
-
+  const hasDisplay = resultDisplay.some((r) => r.some((d) => d !== null));
   return {
     sheet: {
-      name: `${sheet.name}_透视(${aggLabelMap[aggType]}_${valueField})`,
+      name: `${sheet.name}_透视(${AGG_LABEL[aggType]}_${valueField})`,
       headers,
       rows: resultRows,
+      ...(hasDisplay ? { display: resultDisplay } : {}),
     },
     minVal,
     maxVal,
