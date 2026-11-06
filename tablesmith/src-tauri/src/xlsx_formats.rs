@@ -41,6 +41,9 @@ pub struct SheetFormats {
     pub errors: Vec<((u32, u32), &'static str)>,
     /// Text cells whose value in Excel differs from calamine's (whitespace rule above).
     pub texts: HashMap<(u32, u32), String>,
+    /// Legacy array formulas: `(first_row, first_col, last_row, last_col)`. The file
+    /// stores the formula on the first cell only; Excel shows it on every cell.
+    pub arrays: Vec<(u32, u32, u32, u32)>,
 }
 
 /// Parts are decoded to UTF-8 before parsing, so the reader's decoder is plain UTF-8.
@@ -259,6 +262,16 @@ fn sheet_cell_styles(xml: &str, xfs: &[String], shared: &[(String, String)]) -> 
                     next
                 });
                 formats.cells.insert(pos, i);
+            }
+            Ok(Event::Start(e)) | Ok(Event::Empty(e))
+                if e.local_name().as_ref() == b"f"
+                    && attr(&e, b"t").as_deref() == Some("array") =>
+            {
+                if let Some((a, b)) = attr(&e, b"ref").as_deref().and_then(|r| r.split_once(':')) {
+                    if let (Some(a), Some(b)) = (parse_ref(a), parse_ref(b)) {
+                        formats.arrays.push((a.0, a.1, b.0, b.1));
+                    }
+                }
             }
             Ok(Event::Start(e)) if cell.is_some() => match e.local_name().as_ref() {
                 b"rPh" => in_rph = true,

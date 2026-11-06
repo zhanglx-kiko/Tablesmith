@@ -3,37 +3,52 @@ import { EXCEL_ERRORS, parseDateCell, parseNumericCell } from '../utils/numberUt
 import { formatNumber } from './import/cellText';
 
 /**
- * Keep only the given rows, carrying `display` along so it stays aligned with `rows`.
- * Every operation that drops or reorders rows must go through this.
+ * Per-cell layers that travel with their cell: Excel's display text and the formula
+ * behind the value. Both are the same shape as `rows`, null where a cell has none.
+ */
+const LAYERS = ['display', 'formulas'] as const;
+type Layer = (typeof LAYERS)[number];
+
+/** A layer's cells for one row, padded to the header count. */
+function layerRow(sheet: SheetData, layer: Layer, r: number): (string | null)[] {
+  return sheet.headers.map((_, c) => sheet[layer]?.[r]?.[c] ?? null);
+}
+
+/**
+ * Keep only the given rows, carrying the cell layers along so they stay aligned with
+ * `rows`. Every operation that drops or reorders rows must go through this.
  */
 export function selectRows(sheet: SheetData, indices: number[]): SheetData {
   const out: SheetData = { name: sheet.name, headers: sheet.headers, rows: indices.map((i) => sheet.rows[i]) };
-  if (sheet.display) out.display = indices.map((i) => sheet.display?.[i] ?? []);
+  for (const layer of LAYERS) if (sheet[layer]) out[layer] = indices.map((i) => sheet[layer]?.[i] ?? []);
   return out;
 }
 
 /**
- * Replace raw values. Any cell whose raw value changes loses its display text, since the
- * Excel rendering described the old value (masked or trimmed data must never show through).
+ * Replace raw values. Any cell whose raw value changes loses its display text and its
+ * formula, since both described the old value (masked or trimmed data must never show
+ * through, and a changed value no longer comes from the formula).
  */
 export function withRows(sheet: SheetData, rows: string[][]): SheetData {
   const out: SheetData = { name: sheet.name, headers: sheet.headers, rows };
-  if (sheet.display) {
-    out.display = rows.map((row, r) =>
-      row.map((v, c) => (v === sheet.rows[r]?.[c] ? (sheet.display?.[r]?.[c] ?? null) : null)),
-    );
+  for (const layer of LAYERS) {
+    if (!sheet[layer]) continue;
+    out[layer] = rows.map((row, r) => row.map((v, c) => (v === sheet.rows[r]?.[c] ? (sheet[layer]?.[r]?.[c] ?? null) : null)));
   }
   return out;
 }
 
-/** Keep the given columns (by index, in order), for headers, rows and display alike. */
+/** Keep the given columns (by index, in order), for headers, rows and cell layers alike. */
 export function selectColumns(sheet: SheetData, keep: number[]): SheetData {
   const out: SheetData = {
     name: sheet.name,
     headers: keep.map((i) => sheet.headers[i]),
     rows: sheet.rows.map((row) => keep.map((i) => row[i] ?? '')),
   };
-  if (sheet.display) out.display = sheet.display.map((row) => keep.map((i) => row[i] ?? null));
+  for (const layer of LAYERS) {
+    const cells = sheet[layer];
+    if (cells) out[layer] = sheet.rows.map((_, r) => keep.map((i) => cells[r]?.[i] ?? null));
+  }
   return out;
 }
 
@@ -293,7 +308,7 @@ export function addComputedColumn(
   });
 
   const out: SheetData = { name: sheet.name, headers: newHeaders, rows: newRows };
-  if (sheet.display) out.display = sheet.display.map((row) => [...row, null]);
+  for (const layer of LAYERS) if (sheet[layer]) out[layer] = sheet.rows.map((_, r) => [...layerRow(sheet, layer, r), null]);
   return out;
 }
 
@@ -466,31 +481,26 @@ export function joinSheets(
   ];
   const emptyBRow = bHeadersWithoutKey.map(() => '');
   const combinedRows: string[][] = [];
-  // Excel display text travels with its cell, from either table.
-  const keepDisplay = Boolean(sheetA.display || sheetB.display);
-  const combinedDisplay: (string | null)[][] = [];
-  const displayOf = (sheet: SheetData, r: number): (string | null)[] =>
-    sheet.headers.map((_, c) => sheet.display?.[r]?.[c] ?? null);
+  // Display text and formulas travel with their cell, from either table.
+  const layers = LAYERS.filter((l) => sheetA[l] || sheetB[l]);
+  const combined: Partial<Record<Layer, (string | null)[][]>> = {};
+  for (const l of layers) combined[l] = [];
+  const emptyB = bHeadersWithoutKey.map(() => null);
   let matched = 0;
   sheetA.rows.forEach((rowA, r) => {
     const bRow = bMap.get(joinKey(String(rowA[idxA] ?? '')));
     if (bRow !== undefined) {
       matched += 1;
       combinedRows.push([...rowA, ...sheetB.rows[bRow].filter((_, i) => i !== idxB)]);
-      if (keepDisplay) combinedDisplay.push([...displayOf(sheetA, r), ...displayOf(sheetB, bRow).filter((_, i) => i !== idxB)]);
+      for (const l of layers) combined[l]?.push([...layerRow(sheetA, l, r), ...layerRow(sheetB, l, bRow).filter((_, i) => i !== idxB)]);
     } else if (joinType === 'left') {
       combinedRows.push([...rowA, ...emptyBRow]);
-      if (keepDisplay) combinedDisplay.push([...displayOf(sheetA, r), ...emptyBRow.map(() => null)]);
+      for (const l of layers) combined[l]?.push([...layerRow(sheetA, l, r), ...emptyB]);
     }
   });
 
   return {
-    result: {
-      name: `${sheetA.name}_JOIN_${sheetB.name}`,
-      headers: combinedHeaders,
-      rows: combinedRows,
-      ...(keepDisplay ? { display: combinedDisplay } : {}),
-    },
+    result: { name: `${sheetA.name}_JOIN_${sheetB.name}`, headers: combinedHeaders, rows: combinedRows, ...combined },
     stats: {
       matched,
       unmatched: sheetA.rows.length - matched,
@@ -517,11 +527,12 @@ export function unionSheets(sheetA: SheetData, sheetB: SheetData): SheetData {
     headers: allHeaders,
     rows: [...sheetA.rows.map((r) => place(sheetA, r, '')), ...sheetB.rows.map((r) => place(sheetB, r, ''))],
   };
-  // Excel display text travels with its cell, from either table.
-  if (sheetA.display || sheetB.display) {
-    out.display = [
-      ...sheetA.rows.map((_, r) => place<string | null>(sheetA, sheetA.display?.[r], null)),
-      ...sheetB.rows.map((_, r) => place<string | null>(sheetB, sheetB.display?.[r], null)),
+  // Display text and formulas travel with their cell, from either table.
+  for (const l of LAYERS) {
+    if (!sheetA[l] && !sheetB[l]) continue;
+    out[l] = [
+      ...sheetA.rows.map((_, r) => place<string | null>(sheetA, sheetA[l]?.[r], null)),
+      ...sheetB.rows.map((_, r) => place<string | null>(sheetB, sheetB[l]?.[r], null)),
     ];
   }
   return out;

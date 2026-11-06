@@ -2,7 +2,7 @@ import type { FileData, SheetData } from '../../types';
 import { decodeText } from './decode';
 import { readDelimited } from './delimited';
 import { normalizeWorkbook } from './normalize';
-import { readWorkbookWithSheetJs } from './sheetjsReader';
+import { attachSheetJsFormulas, readWorkbookWithSheetJs } from './sheetjsReader';
 import { parseJsonText, parseYamlText } from './structured';
 import { ImportError, type RawWorkbook } from './types';
 import { xmlToSheets } from './xml';
@@ -138,10 +138,16 @@ export function parseFileBytes(fileName: string, bytes: Uint8Array): ImportResul
   return parseText(fileName, decoded.text, decoded.encoding);
 }
 
-/** Rust already read the file (calamine for workbooks, encoding detection for text). */
-export function parseDesktopPayload(fileName: string, payload: DesktopPayload): ImportResult {
+/**
+ * Rust already read the file (calamine for workbooks, encoding detection for text).
+ * `bytes` are the file's bytes when the workbook has `formulasPending`.
+ */
+export function parseDesktopPayload(fileName: string, payload: DesktopPayload, bytes?: Uint8Array): ImportResult {
   const ext = assertSupported(fileName);
-  if (payload.kind === 'workbook') return fromWorkbook(fileName, ext, payload.workbook);
+  if (payload.kind === 'workbook') {
+    const workbook = payload.workbook.formulasPending && bytes ? attachSheetJsFormulas(payload.workbook, bytes) : payload.workbook;
+    return fromWorkbook(fileName, ext, workbook);
+  }
   return parseText(fileName, payload.text, payload.encoding);
 }
 

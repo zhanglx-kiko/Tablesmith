@@ -151,6 +151,11 @@ export async function importFromPath(path: string, signal?: AbortSignal): Promis
   const fileName = baseName(path);
   assertSupported(fileName);
   const response = await invoke<ReadFileResponse>('read_file_data', { path });
+  if (response.kind === 'workbook' && response.workbook.formulasPending) {
+    // xls / xlsb formulas are read from the bytes in the worker (see attachSheetJsFormulas).
+    const bytes = await invoke<ArrayBuffer>('read_file_bytes', { path });
+    return parsePayloadInWorker(fileName, response, signal, bytes);
+  }
   if (response.kind !== 'unparsed') return parsePayloadInWorker(fileName, response, signal);
   const bytes = await invoke<ArrayBuffer>('read_file_bytes', { path });
   return parseBytesInWorker(fileName, bytes, signal);

@@ -29,7 +29,7 @@ function column(s: SheetData, header: string): string[] {
 }
 
 function raw(cells: GridCell[][], merges: [number, number, number, number][] = []): RawSheet {
-  return { name: 'S', hidden: false, origin: [0, 0], cells, merges, uncachedFormulas: 0, formats: [], cellFormats: [] };
+  return { name: 'S', hidden: false, origin: [0, 0], cells, merges, uncachedFormulas: 0, formats: [], cellFormats: [], formulas: [] };
 }
 
 describe('cell text helpers', () => {

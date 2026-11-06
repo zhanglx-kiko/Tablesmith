@@ -97,8 +97,9 @@ async function setMode(page, label) {
       await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
       await sleep(900);
     }
-    const tipExcel = await page.$eval('.ag-tooltip', (e) => e.textContent.trim()).catch(() => '');
-    check('Excel mode hover shows the raw value', tipExcel === `原始值：${rawJan['Net revenue']}`, tipExcel);
+    // The cell is a formula in the model, so a `公式：` line comes first.
+    const tipExcel = await page.$eval('.ag-tooltip', (e) => e.innerText.trim()).catch(() => '');
+    check('Excel mode hover shows the raw value', tipExcel.split('\n').at(-1) === `原始值：${rawJan['Net revenue']}`, tipExcel);
     await page.screenshot({ path: path.join(OUT, '02_hover_raw.png') });
     await page.mouse.move(5, 5);
     await sleep(300);
@@ -112,8 +113,8 @@ async function setMode(page, label) {
       await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
       await sleep(900);
     }
-    const tipRaw = await page.$eval('.ag-tooltip', (e) => e.textContent.trim()).catch(() => '');
-    check('raw mode hover shows the Excel text', tipRaw === `Excel 显示：${excelJan['Net revenue']}`, tipRaw);
+    const tipRaw = await page.$eval('.ag-tooltip', (e) => e.innerText.trim()).catch(() => '');
+    check('raw mode hover shows the Excel text', tipRaw.split('\n').at(-1) === `Excel 显示：${excelJan['Net revenue']}`, tipRaw);
     await page.screenshot({ path: path.join(OUT, '03_raw_mode_hover_excel.png') });
     await page.mouse.move(5, 5);
 

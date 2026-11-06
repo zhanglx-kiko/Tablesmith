@@ -3,7 +3,7 @@ import { ImportError, parseDesktopPayload, parseFileBytes, type DesktopPayload, 
 
 export type WorkerRequest =
   | { id: number; kind: 'bytes'; fileName: string; bytes: ArrayBuffer }
-  | { id: number; kind: 'payload'; fileName: string; payload: DesktopPayload };
+  | { id: number; kind: 'payload'; fileName: string; payload: DesktopPayload; bytes?: ArrayBuffer };
 
 export type WorkerResponse =
   | { id: number; ok: true; result: ImportResult }
@@ -15,7 +15,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
     const result =
       req.kind === 'bytes'
         ? parseFileBytes(req.fileName, new Uint8Array(req.bytes))
-        : parseDesktopPayload(req.fileName, req.payload);
+        : parseDesktopPayload(req.fileName, req.payload, req.bytes ? new Uint8Array(req.bytes) : undefined);
     self.postMessage({ id: req.id, ok: true, result } satisfies WorkerResponse);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

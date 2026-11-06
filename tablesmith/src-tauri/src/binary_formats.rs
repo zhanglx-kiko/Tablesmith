@@ -193,7 +193,10 @@ fn xlsb_sheet(data: &[u8], xfs: &[String]) -> SheetFormats {
             0x0000 => row = u32_at(d, 0).unwrap_or(row), // BrtRowHdr
             // Cell records (blank, rk, error, bool, real, st, isst, fmla*) share the header.
             0x0001..=0x000B => {
-                if typ != 0x0001 {
+                // BrtFmlaString with an empty result (`=""`, cch 0 at offset 8) shows as a
+                // blank cell, so it has no value.
+                let empty_text = typ == 0x0008 && u32_at(d, 8) == Some(0);
+                if typ != 0x0001 && !empty_text {
                     b.out.valued += 1;
                 }
                 // calamine drops BrtFmlaError (e.g. `=1/0`); keep the error so the cell
@@ -359,7 +362,12 @@ pub fn read_xls_formats<R: Read + Seek>(reader: R) -> WorkbookFormats {
             match typ {
                 // Number, Label, BoolErr, Rk, LabelSst, Formula: row, col, ixfe
                 0x0203 | 0x0204 | 0x0205 | 0x027E | 0x00FD | 0x0006 | 0x0201 => {
-                    if typ != 0x0201 {
+                    // A formula whose result is empty text (`=""`, FormulaValue type 3 with
+                    // fExprO 0xFFFF, MS-XLS 2.5.133) shows as a blank cell, so it has no value.
+                    let empty_text = typ == 0x0006
+                        && d.get(6) == Some(&3)
+                        && d.get(12..14) == Some(&[0xFF, 0xFF][..]);
+                    if typ != 0x0201 && !empty_text {
                         b.out.valued += 1;
                     }
                     let (Some(r), Some(c), Some(x)) = (u16_at(d, 0), u16_at(d, 2), u16_at(d, 4))

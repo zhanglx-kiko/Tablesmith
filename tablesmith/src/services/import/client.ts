@@ -64,6 +64,6 @@ export function parseBytesInWorker(fileName: string, bytes: ArrayBuffer, signal?
   return run({ kind: 'bytes', fileName, bytes }, signal, [bytes]);
 }
 
-export function parsePayloadInWorker(fileName: string, payload: DesktopPayload, signal?: AbortSignal): Promise<ImportResult> {
-  return run({ kind: 'payload', fileName, payload }, signal);
+export function parsePayloadInWorker(fileName: string, payload: DesktopPayload, signal?: AbortSignal, bytes?: ArrayBuffer): Promise<ImportResult> {
+  return run({ kind: 'payload', fileName, payload, bytes }, signal, bytes ? [bytes] : []);
 }

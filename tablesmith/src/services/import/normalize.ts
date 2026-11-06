@@ -315,6 +315,7 @@ function blockToSheet(
   width: number,
   name: string,
   formatFor: FormatLookup,
+  formulaAt: Map<string, string>,
 ): ImportedTable {
   const headerParts = buildHeaderParts(rows, merges, block, width);
   const dataRows: { cells: GridCell[]; source: number }[] = [];
@@ -345,6 +346,17 @@ function blockToSheet(
     }),
   );
   if (anyDisplay) sheet.display = display;
+  if (formulaAt.size > 0) {
+    let anyFormula = false;
+    const formulas = dataRows.map(({ source }) =>
+      keep.map((c) => {
+        const f = formulaAt.get(`${source},${c}`) ?? null;
+        if (f !== null) anyFormula = true;
+        return f;
+      }),
+    );
+    if (anyFormula) sheet.formulas = formulas;
+  }
   return { table: sheet, rows: dataRows.map(({ source }) => source), cols: keep };
 }
 
@@ -391,6 +403,8 @@ export function normalizeSheetDetailed(
     while (copy.length < width) copy.push(null);
     return copy;
   });
+  // `=""` shows as a blank cell and only blanks it out; it is not worth showing.
+  const formulaAt = new Map(sheet.formulas.filter(([, , f]) => f.trim() !== '""').map(([r, c, f]) => [`${r},${c}`, f]));
   const cellFormats = sheet.cellFormats.map((row) => row.slice());
   const formatFor = formatLookup({ ...sheet, cellFormats }, source.spreadsheet, source.date1904);
   if (formatFor.knowsFormats) classifyDates(rows, formatFor);
@@ -417,7 +431,7 @@ export function normalizeSheetDetailed(
       const label = title.length > BLOCK_TITLE_MAX ? `${title.slice(0, BLOCK_TITLE_MAX)}…` : title;
       name = `${sheet.name} · ${label || `表${idx + 1}`}`;
     }
-    const imported = blockToSheet(rows, sheet.merges, block, width, name, formatFor);
+    const imported = blockToSheet(rows, sheet.merges, block, width, name, formatFor, formulaAt);
     if (imported.table.headers.length > 0) tables.push(imported);
     for (let r = block.footerStart; r < block.end; r += 1) {
       const note = rows[r].find((c) => cellKind(c) !== 'empty') ?? null;

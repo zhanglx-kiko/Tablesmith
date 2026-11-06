@@ -1,9 +1,9 @@
 import React, { useMemo, useRef, useCallback, useEffect, useState } from 'react';
 import { AgGridReact } from 'ag-grid-react';
-import type { ColDef, GridApi, GridReadyEvent } from 'ag-grid-community';
+import type { CellClickedEvent, ColDef, GridApi, GridReadyEvent } from 'ag-grid-community';
 import { AllCommunityModule, ModuleRegistry } from 'ag-grid-community';
 import { AG_GRID_LOCALE_CN } from '@ag-grid-community/locale';
-import { FilterX, Maximize2, Minimize2, ZoomIn, ZoomOut } from 'lucide-react';
+import { FilterX, FunctionSquare, Maximize2, Minimize2, ZoomIn, ZoomOut } from 'lucide-react';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 import type { SheetData } from '../types';
@@ -53,6 +53,9 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData, locate }) => {
   const isDark = getIsDark(theme);
   /** Rows left after column filters; null when no filter is active. */
   const [filteredCount, setFilteredCount] = useState<number | null>(null);
+  /** Clicked cell, shown in the formula bar (like Excel's name box + fx bar). */
+  const [selected, setSelected] = useState<{ row: number; col: number } | null>(null);
+  const selectedRef = useRef<{ rowId: string; colId: string } | null>(null);
   const gridThemeClass = isDark ? 'ag-theme-alpine-dark' : 'ag-theme-alpine';
 
   const zoomRatio = tableZoom / 100;
@@ -68,6 +71,7 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData, locate }) => {
   }, [tableZoom]);
 
   const hasDisplay = Boolean(sheetData.display);
+  const hasFormulas = Boolean(sheetData.formulas);
   const showExcel = valueMode === 'excel' && hasDisplay;
 
   const columnDefs = useMemo<ColDef[]>(
@@ -85,17 +89,27 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData, locate }) => {
           colId: `c${i}`,
           headerName: header,
           valueGetter: (p) => shown(p.data),
-          // Hover shows the other form when it differs.
+          // Hover shows the formula behind the value, and the other form of the value
+          // when it differs.
           tooltipValueGetter: (p) => {
             const data = p.data as Record<string, string> | undefined;
-            const disp = data?.[`d${i}`];
-            if (!data || !disp) return undefined;
-            return showExcel ? `原始值：${data[`r${i}`] ?? ''}` : `Excel 显示：${disp}`;
+            if (!data) return undefined;
+            const lines: string[] = [];
+            const formula = data[`f${i}`];
+            if (formula) lines.push(`公式：=${formula}`);
+            const disp = data[`d${i}`];
+            if (disp) lines.push(showExcel ? `原始值：${data[`r${i}`] ?? ''}` : `Excel 显示：${disp}`);
+            return lines.length > 0 ? lines.join('\n') : undefined;
           },
           // Right-align numeric cells only; the `rightAligned` type would also flip the header
           // and move the filter button to the left.
           cellClass: numeric ? 'ag-right-aligned-cell' : undefined,
           cellClassRules: {
+            'ts-formula-cell': (p) => Boolean((p.data as Record<string, string> | undefined)?.[`f${i}`]),
+            'ts-selected-cell': (p) => {
+              const sel = selectedRef.current;
+              return Boolean(sel && p.node.id === sel.rowId && sel.colId === `c${i}`);
+            },
             'ts-located-cell': (p) => {
               const loc = locatedRef.current;
               return Boolean(loc && p.node.id === loc.rowId && (loc.colId === null || loc.colId === `c${i}`));
@@ -128,10 +142,13 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData, locate }) => {
       sheetData.rows.map((row, idx) => {
         const obj: Record<string, string> = { __rowId: `row_${idx}` };
         const disp = sheetData.display?.[idx];
+        const formulas = sheetData.formulas?.[idx];
         sheetData.headers.forEach((_, i) => {
           obj[`r${i}`] = row[i] ?? '';
           const d = disp?.[i];
           if (d) obj[`d${i}`] = d;
+          const f = formulas?.[i];
+          if (f) obj[`f${i}`] = f;
         });
         return obj;
       }),
@@ -193,8 +210,31 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData, locate }) => {
     gridApiRef.current?.setFilterModel(null);
   }, []);
 
-  // A new sheet starts unfiltered.
-  useEffect(() => setFilteredCount(null), [sheetData]);
+  // A new sheet starts unfiltered, with no cell selected.
+  useEffect(() => {
+    setFilteredCount(null);
+    setSelected(null);
+    selectedRef.current = null;
+  }, [sheetData]);
+
+  // Clicking a cell shows its formula in the bar above the grid (cell focus is off, so
+  // the selection is tracked here).
+  const handleCellClicked = useCallback((e: CellClickedEvent) => {
+    const colId = e.column.getColId();
+    const col = Number(colId.slice(1));
+    // The row id names the data row (`row_12`); the display index changes with sorting
+    // and filtering, so it must not be used to look up the formula.
+    const row = Number(String(e.node.id ?? '').replace('row_', ''));
+    if (!Number.isInteger(col) || !Number.isInteger(row)) return;
+    const previous = selectedRef.current ? e.api.getRowNode(selectedRef.current.rowId) : undefined;
+    selectedRef.current = { rowId: e.node.id ?? '', colId };
+    setSelected({ row, col });
+    e.api.refreshCells({ rowNodes: previous ? [previous, e.node] : [e.node], force: true });
+  }, []);
+
+  const selectedFormula = selected ? (sheetData.formulas?.[selected.row]?.[selected.col] ?? null) : null;
+  const selectedValue = selected ? (sheetData.rows[selected.row]?.[selected.col] ?? '') : '';
+  const selectedLabel = selected ? `${sheetData.headers[selected.col] ?? ''} · 第${selected.row + 1}行` : '未选中单元格';
 
   const handleFitContents = useCallback(() => {
     gridApiRef.current?.autoSizeAllColumns();
@@ -218,6 +258,30 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData, locate }) => {
 
   return (
     <div className="flex flex-col h-full">
+      {hasFormulas && (
+        <div
+          className="flex items-center gap-2 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-[#0b0f19] px-3 py-1 text-xs"
+          data-testid="formula-bar"
+        >
+          {/* Column name and row; long column names truncate with the full text on hover. */}
+          <span
+            className="max-w-[16rem] shrink-0 truncate font-mono text-gray-500 dark:text-gray-400"
+            data-testid="formula-bar-cell"
+            title={selectedLabel}
+          >
+            {selectedLabel}
+          </span>
+          <FunctionSquare size={14} className="shrink-0 text-emerald-600 dark:text-emerald-400" aria-label="公式" />
+          <input
+            readOnly
+            aria-label="单元格公式"
+            data-testid="formula-bar-text"
+            value={selected ? (selectedFormula !== null ? `=${selectedFormula}` : selectedValue) : ''}
+            placeholder="单击单元格查看公式；带绿色角标的单元格是公式算出的值"
+            className="min-w-0 flex-1 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-2 py-1 font-mono text-gray-800 dark:text-gray-100 outline-none focus:border-emerald-500"
+          />
+        </div>
+      )}
       <div
         className={`${gridThemeClass} flex-1 w-full h-full`}
         style={
@@ -239,8 +303,8 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData, locate }) => {
           localeText={LOCALE_TEXT}
           onGridReady={handleGridReady}
           onFilterChanged={handleFilterChanged}
+          onCellClicked={handleCellClicked}
           tooltipShowDelay={400}
-          tooltipInteraction
           animateRows
           suppressCellFocus
           domLayout="normal"

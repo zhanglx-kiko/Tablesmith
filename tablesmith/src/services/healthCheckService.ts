@@ -16,7 +16,8 @@ export type HealthKind =
   | 'formulaError'
   | 'outlier'
   | 'mixedDateFormat'
-  | 'variantSpelling';
+  | 'variantSpelling'
+  | 'typedInFormulaColumn';
 
 export interface HealthIssue {
   kind: HealthKind;
@@ -67,6 +68,24 @@ function quantile(sorted: number[], q: number): number {
 /** Shape of a date text, so "2024-01-31" and "2024/1/31" count as different formats. */
 function dateShape(v: string): string {
   return v.trim().replace(/\d+/g, (m) => String(m.length));
+}
+
+/** A cell reference in a formula: optional sheet, `$` flags, column letters, row number. */
+const CELL_REF = /("(?:[^"]|"")*")|('(?:[^']|'')+'!|[A-Za-z_][\w.]*!)?(\$?)([A-Z]{1,3})(\$?)(\d+)(?![\w(])/g;
+
+/**
+ * A formula with its relative row references written as offsets from its own row, so a
+ * formula filled down a column has one shape: "B5*C5" in row 5 and "B6*C6" in row 6 both
+ * become "B{+0}*C{+0}". Absolute rows ("$D$2"), sheet names and text literals stay as written.
+ */
+export function formulaShape(formula: string, row: number): string {
+  return formula.replace(CELL_REF, (_m, str: string | undefined, sheet: string | undefined, colAbs: string, col: string, rowAbs: string, ref: string) => {
+    if (str) return str;
+    const head = `${sheet ?? ''}${colAbs}${col}`;
+    if (rowAbs) return `${head}$${ref}`;
+    const offset = Number(ref) - row;
+    return `${head}{${offset >= 0 ? '+' : ''}${offset}}`;
+  });
 }
 
 /** Key used to spot the same value written differently: case, width, inner spacing. */
@@ -313,6 +332,42 @@ export function checkSheetHealth(sheet: SheetData): HealthReport {
           rows,
         });
       }
+    }
+  }
+
+  // A formula column where some rows hold a typed value instead (a number keyed over the
+  // formula, so it no longer follows the source data). Excel marks these only with a
+  // small green triangle. Only flagged when most of the column is one filled-down formula.
+  const formulas = sheet.formulas;
+  if (formulas) {
+    for (let c = 0; c < width; c++) {
+      const shapes = new Map<string, { n: number; example: string }>();
+      const typed: number[] = [];
+      let counted = 0;
+      sheet.rows.forEach((row, r) => {
+        if (labels.has(r) || (row[c] ?? '') === '') return;
+        counted += 1;
+        const f = formulas[r]?.[c] ?? null;
+        if (f === null) {
+          typed.push(r);
+          return;
+        }
+        // Data rows are consecutive sheet rows, so the data row index works as the row.
+        const shape = formulaShape(f, r);
+        const entry = shapes.get(shape);
+        if (entry) entry.n += 1;
+        else shapes.set(shape, { n: 1, example: f });
+      });
+      const top = [...shapes.values()].sort((a, b) => b.n - a.n)[0];
+      if (!top || typed.length === 0 || counted < 4 || top.n / counted < 0.6) continue;
+      issues.push({
+        kind: 'typedInFormulaColumn',
+        severity: 'warning',
+        column: c,
+        title: `${name(c)}有 ${typed.length} 行是手填的值，其余 ${top.n} 行是公式`,
+        detail: `公式如 =${top.example}。手填的数不会随源数据更新，请确认是不是有意覆盖。`,
+        rows: typed,
+      });
     }
   }
 

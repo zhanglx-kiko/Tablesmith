@@ -67,6 +67,11 @@ pub struct RawSheet {
     pub formats: Vec<String>,
     /// Same shape as `cells`: index into `formats`, or -1 for General.
     pub cell_formats: Vec<Vec<i32>>,
+    /// `(row, col, formula)` relative to `cells`, without the leading `=`; the cell holds
+    /// the value Excel last calculated. xlsx only: calamine decodes BIFF / xlsb formula
+    /// tokens incompletely (wrong shared formulas and sheet names), so for xls / xlsb the
+    /// frontend reads formulas with SheetJS (see formulas.ts).
+    pub formulas: Vec<(u32, u32, String)>,
 }
 
 #[derive(Debug, Serialize)]
@@ -80,6 +85,9 @@ pub struct RawWorkbook {
     /// them that way); set when the format reader saw cells the grid lacks.
     #[serde(skip)]
     pub lost_cells: bool,
+    /// xls / xlsb workbook with formulas: their text is not in `RawSheet::formulas` (see
+    /// there); the frontend reads it from the file bytes (`read_file_bytes`).
+    pub formulas_pending: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -373,29 +381,78 @@ fn sheet_merges<RS: std::io::Read + std::io::Seek>(
     }
 }
 
-/// Formula cells whose cached value is missing (workbooks written by tools that never calculate).
-fn count_uncached_formulas<RS: std::io::Read + std::io::Seek>(
+/// The sheet's formulas relative to `origin`, and how many formula cells have no cached
+/// value (workbooks written by tools that never calculate). `errors` are the error results
+/// calamine dropped and [`restore_errors`] put back, so those cells do have a value.
+fn sheet_formulas<RS: std::io::Read + std::io::Seek>(
     workbook: &mut Sheets<RS>,
     name: &str,
     values: &Range<Data>,
-) -> usize {
+    errors: &[((u32, u32), &'static str)],
+    origin: (u32, u32),
+) -> (Vec<(u32, u32, String)>, usize) {
     let Ok(formulas) = workbook.worksheet_formula(name) else {
-        return 0;
+        return (Vec::new(), 0);
     };
     let Some((fr, fc)) = formulas.start() else {
-        return 0;
+        return (Vec::new(), 0);
     };
-    formulas
-        .used_cells()
+    let mut out = Vec::new();
+    let mut uncached = 0;
+    for (r, c, f) in formulas.used_cells() {
+        if f.is_empty() {
+            continue;
+        }
+        let (row, col) = (fr + r as u32, fc + c as u32);
         // `=""` (blank-out placeholder) evaluates to an empty string, so no cache is needed.
-        .filter(|(_, _, f)| !f.is_empty() && f.trim() != "\"\"")
-        .filter(|(r, c, _)| {
+        if f.trim() != "\"\"" {
             // An empty `<v></v>` comes back as an empty string rather than `Empty`.
-            let cached = values.get_value((fr + *r as u32, fc + *c as u32));
-            matches!(cached, None | Some(Data::Empty))
-                || matches!(cached, Some(Data::String(s)) if s.is_empty())
-        })
-        .count()
+            let cached = values.get_value((row, col));
+            let empty = matches!(cached, None | Some(Data::Empty))
+                || matches!(cached, Some(Data::String(s)) if s.is_empty());
+            if empty && !errors.iter().any(|(pos, _)| *pos == (row, col)) {
+                uncached += 1;
+            }
+        }
+        if row >= origin.0 && col >= origin.1 {
+            out.push((row - origin.0, col - origin.1, f.clone()));
+        }
+    }
+    (out, uncached)
+}
+
+/// Copy each legacy array formula from its first cell to the rest of its range, as Excel
+/// shows it (`{=B2:B4*2}` on K2, K3 and K4).
+fn spread_array_formulas(
+    formulas: &mut Vec<(u32, u32, String)>,
+    origin: (u32, u32),
+    arrays: &[(u32, u32, u32, u32)],
+) {
+    if arrays.is_empty() {
+        return;
+    }
+    let mut at: HashMap<(u32, u32), usize> = formulas
+        .iter()
+        .enumerate()
+        .map(|(i, (r, c, _))| ((*r, *c), i))
+        .collect();
+    for &(r1, c1, r2, c2) in arrays {
+        let (Some(fr), Some(fc)) = (r1.checked_sub(origin.0), c1.checked_sub(origin.1)) else {
+            continue;
+        };
+        let Some(text) = at.get(&(fr, fc)).map(|&i| formulas[i].2.clone()) else {
+            continue;
+        };
+        for r in r1..=r2 {
+            for c in c1..=c2 {
+                let pos = (r - origin.0, c - origin.1);
+                if let std::collections::hash_map::Entry::Vacant(e) = at.entry(pos) {
+                    e.insert(formulas.len());
+                    formulas.push((pos.0, pos.1, text.clone()));
+                }
+            }
+        }
+    }
 }
 
 fn describe_open_error(err: calamine::Error) -> String {
@@ -423,6 +480,7 @@ pub fn read_workbook(path: &Path) -> Result<RawWorkbook, String> {
     let mut sheets = Vec::new();
     let mut notices = Vec::new();
     let mut lost_cells = false;
+    let mut formulas_pending = false;
 
     for meta in metadata {
         if meta.typ != SheetType::WorkSheet {
@@ -441,7 +499,18 @@ pub fn read_workbook(path: &Path) -> Result<RawWorkbook, String> {
             apply_excel_text(&mut cells, origin, &f.texts);
         }
         let mut merge_dims = sheet_merges(&mut workbook, &meta.name);
-        let uncached_formulas = count_uncached_formulas(&mut workbook, &meta.name, &range);
+        let errors = sheet_formats
+            .get(&meta.name)
+            .map_or(&[][..], |f| f.errors.as_slice());
+        let (mut formulas, uncached_formulas) =
+            sheet_formulas(&mut workbook, &meta.name, &range, errors, origin);
+        if !matches!(workbook, Sheets::Xlsx(_)) {
+            formulas_pending |= !formulas.is_empty();
+            formulas.clear();
+        }
+        if let Some(f) = sheet_formats.get(&meta.name) {
+            spread_array_formulas(&mut formulas, origin, &f.arrays);
+        }
         let (formats, cell_formats) = match sheet_formats.remove(&meta.name) {
             Some(mut f) => {
                 lost_cells |= f.valued > grid_cell_count(&cells);
@@ -465,6 +534,7 @@ pub fn read_workbook(path: &Path) -> Result<RawWorkbook, String> {
             uncached_formulas,
             formats,
             cell_formats,
+            formulas,
         });
     }
     Ok(RawWorkbook {
@@ -472,6 +542,7 @@ pub fn read_workbook(path: &Path) -> Result<RawWorkbook, String> {
         notices,
         date1904,
         lost_cells,
+        formulas_pending,
     })
 }
 
@@ -605,6 +676,63 @@ mod tests {
         assert!(hidden.hidden);
         let typed = wb.sheets.iter().find(|s| s.name == "类型样例").unwrap();
         assert_eq!(typed.uncached_formulas, 3);
+    }
+
+    /// Every formula desktop Excel reports (sample-data/excel-reference/formulas.json,
+    /// written by scripts/excel-formula-fixture.ps1) comes back with the same text at the
+    /// same address; typed cells in a formula column have none.
+    #[test]
+    fn reads_xlsx_formulas_like_excel() {
+        let reference: Vec<serde_json::Value> = serde_json::from_str(
+            &fs::read_to_string(
+                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("../sample-data/excel-reference/formulas.json"),
+            )
+            .expect("formulas.json"),
+        )
+        .expect("json");
+        let wb = workbook("formulas.xlsx").expect("parsed");
+        let mut got = std::collections::BTreeMap::new();
+        for s in &wb.sheets {
+            for (r, c, f) in &s.formulas {
+                got.insert(
+                    (s.name.clone(), r + s.origin[0], c + s.origin[1]),
+                    f.clone(),
+                );
+            }
+        }
+        let want: std::collections::BTreeMap<_, _> = reference
+            .iter()
+            .map(|cell| {
+                let key = (
+                    cell["sheet"].as_str().unwrap().to_string(),
+                    cell["row"].as_u64().unwrap() as u32,
+                    cell["col"].as_u64().unwrap() as u32,
+                );
+                (key, cell["formula"].as_str().unwrap().to_string())
+            })
+            .collect();
+        assert_eq!(got, want);
+        // xls / xlsb formulas come from the frontend.
+        for ext in ["xls", "xlsb"] {
+            let wb = workbook(&format!("formulas.{ext}")).expect(ext);
+            assert!(wb.sheets.iter().all(|s| s.formulas.is_empty()), "{ext}");
+        }
+        // Excel calculated and saved every formula, so none is reported as uncached.
+        for ext in ["xlsx", "xls", "xlsb"] {
+            let wb = workbook(&format!("formulas.{ext}")).expect(ext);
+            let uncached: usize = wb.sheets.iter().map(|s| s.uncached_formulas).sum();
+            assert_eq!(uncached, 0, "{ext}");
+        }
+    }
+
+    /// The formula fixtures open without the lost-cell fallback: `=""` cells are blank
+    /// in Excel, so they must not count as cells calamine dropped.
+    #[test]
+    fn empty_text_formulas_are_not_lost_cells() {
+        for ext in ["xlsx", "xls", "xlsb"] {
+            assert!(workbook(&format!("formulas.{ext}")).is_some(), "{ext}");
+        }
     }
 
     #[test]

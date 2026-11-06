@@ -203,3 +203,35 @@ describe.skipIf(sheets.length === 0)('health check finds planted defects in real
     expect(found(sheet, 'outlier', 3).size).toBe(0);
   });
 });
+
+describe('values typed over a formula column', () => {
+  it('flags exactly the typed cells in the Excel-built fixture', () => {
+    // amount = B*C filled down; Excel then had D5 and D9 typed over (data rows 3 and 7).
+    const [sheet] = load('sample-data/edge-cases/formulas.xlsx');
+    const amount = sheet.headers.indexOf('amount');
+    expect([...found(sheet, 'typedInFormulaColumn', amount)]).toEqual([3, 7]);
+    // Columns where every row is the formula, or that hold one-off formulas, are fine.
+    expect(checkSheetHealth(sheet).issues.filter((i) => i.kind === 'typedInFormulaColumn')).toHaveLength(1);
+  });
+
+  it.skipIf(!existsSync(MODEL))('raises nothing on a real model whose formula columns are consistent', () => {
+    for (const sheet of load(MODEL)) expect(found(sheet, 'typedInFormulaColumn').size, sheet.name).toBe(0);
+  });
+
+  it('needs most of the column to be one filled-down formula', () => {
+    const rows = Array.from({ length: 10 }, (_, i) => [String(i), String(i * 2)]);
+    const base: SheetData = { name: 's', headers: ['a', 'b'], rows };
+    // Relative refs follow the row: B{n}=A{n}*2 is one formula filled down.
+    const filled = rows.map((_, r) => [null, r === 4 ? null : `A${r + 2}*2`]);
+    expect([...found({ ...base, formulas: filled }, 'typedInFormulaColumn', 1)]).toEqual([4]);
+    // Every row a different formula (a report): not a filled-down column, nothing to flag.
+    const mixed = rows.map((_, r) => [null, r === 4 ? null : `SUM(A$2:A${r + 2})+${r}`]);
+    expect(found({ ...base, formulas: mixed }, 'typedInFormulaColumn', 1).size).toBe(0);
+    // A column that is mostly typed with a couple of formulas: nothing to flag either.
+    const few = rows.map((_, r) => [null, r < 2 ? `A${r + 2}*2` : null]);
+    expect(found({ ...base, formulas: few }, 'typedInFormulaColumn', 1).size).toBe(0);
+    // Too few rows to call it a pattern (2 formulas and 1 typed value).
+    const tiny: SheetData = { name: 's', headers: ['a', 'b'], rows: rows.slice(0, 3), formulas: [[null, 'A2*2'], [null, 'A3*2'], [null, null]] };
+    expect(found(tiny, 'typedInFormulaColumn', 1).size).toBe(0);
+  });
+});

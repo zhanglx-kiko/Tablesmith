@@ -34,6 +34,8 @@ export interface RawSheet {
   formats: string[];
   /** Same shape as `cells`: index into `formats`, -1 for General. Empty when unknown. */
   cellFormats: number[][];
+  /** `[row, col, formula]` relative to `cells`, without the leading "=". */
+  formulas: [number, number, string][];
 }
 
 export interface RawWorkbook {
@@ -41,6 +43,11 @@ export interface RawWorkbook {
   notices: string[];
   /** Serial 0 is 1904-01-01 (Mac workbooks). */
   date1904: boolean;
+  /**
+   * Desktop reader only: the xls / xlsb workbook has formulas that are not in `formulas`;
+   * read them from the file bytes with `attachSheetJsFormulas`.
+   */
+  formulasPending?: boolean;
 }
 
 /** User-facing import failure; `message` is shown as-is in the UI. */

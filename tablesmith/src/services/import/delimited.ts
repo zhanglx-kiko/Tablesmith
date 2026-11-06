@@ -15,7 +15,7 @@ export function readDelimited(text: string, sheetName: string, delimiter?: strin
     notices.push(`${line}的引号没有闭合，该行之后的内容可能被合并到一个单元格中`);
   }
   return {
-    sheets: [{ name: sheetName, hidden: false, origin: [0, 0], cells: parsed.data, merges: [], uncachedFormulas: 0, formats: [], cellFormats: [] }],
+    sheets: [{ name: sheetName, hidden: false, origin: [0, 0], cells: parsed.data, merges: [], uncachedFormulas: 0, formats: [], cellFormats: [], formulas: [] }],
     notices,
     date1904: false,
   };

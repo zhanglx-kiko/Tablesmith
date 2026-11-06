@@ -1,0 +1,450 @@
+[
+  {
+    "sheet": "订单",
+    "row": 0,
+    "col": 10,
+    "formula": "\"dbl\"&\"_qty\"",
+    "array": false,
+    "value": "dbl_qty"
+  },
+  {
+    "sheet": "订单",
+    "row": 1,
+    "col": 3,
+    "formula": "B2*C2",
+    "array": false,
+    "value": "59.699999999999996"
+  },
+  {
+    "sheet": "订单",
+    "row": 1,
+    "col": 5,
+    "formula": "IFERROR(D2*VLOOKUP(E2,'Rate''s & FX'!$A$2:$B$4,2,FALSE),\"no rate\")",
+    "array": false,
+    "value": "59.699999999999996"
+  },
+  {
+    "sheet": "订单",
+    "row": 1,
+    "col": 6,
+    "formula": "D2/SUM($D$2:$D$11)",
+    "array": false,
+    "value": "0.040981637206109485"
+  },
+  {
+    "sheet": "订单",
+    "row": 1,
+    "col": 7,
+    "formula": "IF(B2=0,\"zero \"\"qty\"\"\",IF(B2>3,TRUE,FALSE))",
+    "array": false,
+    "value": "True"
+  },
+  {
+    "sheet": "订单",
+    "row": 1,
+    "col": 8,
+    "formula": "\"\"",
+    "array": false,
+    "value": ""
+  },
+  {
+    "sheet": "订单",
+    "row": 1,
+    "col": 9,
+    "formula": "ROUND(F2,2)=F2",
+    "array": false,
+    "value": "True"
+  },
+  {
+    "sheet": "订单",
+    "row": 1,
+    "col": 10,
+    "formula": "B2:B4*2",
+    "array": true,
+    "value": "12"
+  },
+  {
+    "sheet": "订单",
+    "row": 2,
+    "col": 3,
+    "formula": "B3*C3",
+    "array": false,
+    "value": "39.8"
+  },
+  {
+    "sheet": "订单",
+    "row": 2,
+    "col": 5,
+    "formula": "IFERROR(D3*VLOOKUP(E3,'Rate''s & FX'!$A$2:$B$4,2,FALSE),\"no rate\")",
+    "array": false,
+    "value": "282.58"
+  },
+  {
+    "sheet": "订单",
+    "row": 2,
+    "col": 6,
+    "formula": "D3/SUM($D$2:$D$11)",
+    "array": false,
+    "value": "0.027321091470739658"
+  },
+  {
+    "sheet": "订单",
+    "row": 2,
+    "col": 7,
+    "formula": "IF(B3=0,\"zero \"\"qty\"\"\",IF(B3>3,TRUE,FALSE))",
+    "array": false,
+    "value": "False"
+  },
+  {
+    "sheet": "订单",
+    "row": 2,
+    "col": 8,
+    "formula": "1/0",
+    "array": false,
+    "value": "#DIV/0!"
+  },
+  {
+    "sheet": "订单",
+    "row": 2,
+    "col": 9,
+    "formula": "ROUND(F3,2)=F3",
+    "array": false,
+    "value": "True"
+  },
+  {
+    "sheet": "订单",
+    "row": 2,
+    "col": 10,
+    "formula": "B2:B4*2",
+    "array": true,
+    "value": "4"
+  },
+  {
+    "sheet": "订单",
+    "row": 3,
+    "col": 3,
+    "formula": "B4*C4",
+    "array": false,
+    "value": "149.25"
+  },
+  {
+    "sheet": "订单",
+    "row": 3,
+    "col": 5,
+    "formula": "IFERROR(D4*VLOOKUP(E4,'Rate''s & FX'!$A$2:$B$4,2,FALSE),\"no rate\")",
+    "array": false,
+    "value": "1164.1499999999999"
+  },
+  {
+    "sheet": "订单",
+    "row": 3,
+    "col": 6,
+    "formula": "D4/SUM($D$2:$D$11)",
+    "array": false,
+    "value": "0.10245409301527372"
+  },
+  {
+    "sheet": "订单",
+    "row": 3,
+    "col": 7,
+    "formula": "IF(B4=0,\"zero \"\"qty\"\"\",IF(B4>3,TRUE,FALSE))",
+    "array": false,
+    "value": "True"
+  },
+  {
+    "sheet": "订单",
+    "row": 3,
+    "col": 8,
+    "formula": "A3&\" / \"&E3",
+    "array": false,
+    "value": "A-2 / USD"
+  },
+  {
+    "sheet": "订单",
+    "row": 3,
+    "col": 9,
+    "formula": "ROUND(F4,2)=F4",
+    "array": false,
+    "value": "True"
+  },
+  {
+    "sheet": "订单",
+    "row": 3,
+    "col": 10,
+    "formula": "B2:B4*2",
+    "array": true,
+    "value": "10"
+  },
+  {
+    "sheet": "订单",
+    "row": 4,
+    "col": 5,
+    "formula": "IFERROR(D5*VLOOKUP(E5,'Rate''s & FX'!$A$2:$B$4,2,FALSE),\"no rate\")",
+    "array": false,
+    "value": "876.495"
+  },
+  {
+    "sheet": "订单",
+    "row": 4,
+    "col": 6,
+    "formula": "D5/SUM($D$2:$D$11)",
+    "array": false,
+    "value": "0.08474343573022139"
+  },
+  {
+    "sheet": "订单",
+    "row": 4,
+    "col": 7,
+    "formula": "IF(B5=0,\"zero \"\"qty\"\"\",IF(B5>3,TRUE,FALSE))",
+    "array": false,
+    "value": "False"
+  },
+  {
+    "sheet": "订单",
+    "row": 4,
+    "col": 8,
+    "formula": "SUMIFS(D$2:D$11,E$2:E$11,\"USD\")",
+    "array": false,
+    "value": "660.75"
+  },
+  {
+    "sheet": "订单",
+    "row": 4,
+    "col": 9,
+    "formula": "ROUND(F5,2)=F5",
+    "array": false,
+    "value": "False"
+  },
+  {
+    "sheet": "订单",
+    "row": 5,
+    "col": 3,
+    "formula": "B6*C6",
+    "array": false,
+    "value": "199"
+  },
+  {
+    "sheet": "订单",
+    "row": 5,
+    "col": 5,
+    "formula": "IFERROR(D6*VLOOKUP(E6,'Rate''s & FX'!$A$2:$B$4,2,FALSE),\"no rate\")",
+    "array": false,
+    "value": "no rate"
+  },
+  {
+    "sheet": "订单",
+    "row": 5,
+    "col": 6,
+    "formula": "D6/SUM($D$2:$D$11)",
+    "array": false,
+    "value": "0.1366054573536983"
+  },
+  {
+    "sheet": "订单",
+    "row": 5,
+    "col": 7,
+    "formula": "IF(B6=0,\"zero \"\"qty\"\"\",IF(B6>3,TRUE,FALSE))",
+    "array": false,
+    "value": "True"
+  },
+  {
+    "sheet": "订单",
+    "row": 5,
+    "col": 9,
+    "formula": "ROUND(F6,2)=F6",
+    "array": false,
+    "value": "#VALUE!"
+  },
+  {
+    "sheet": "订单",
+    "row": 6,
+    "col": 3,
+    "formula": "B7*C7",
+    "array": false,
+    "value": "0"
+  },
+  {
+    "sheet": "订单",
+    "row": 6,
+    "col": 5,
+    "formula": "IFERROR(D7*VLOOKUP(E7,'Rate''s & FX'!$A$2:$B$4,2,FALSE),\"no rate\")",
+    "array": false,
+    "value": "0"
+  },
+  {
+    "sheet": "订单",
+    "row": 6,
+    "col": 6,
+    "formula": "D7/SUM($D$2:$D$11)",
+    "array": false,
+    "value": "0"
+  },
+  {
+    "sheet": "订单",
+    "row": 6,
+    "col": 7,
+    "formula": "IF(B7=0,\"zero \"\"qty\"\"\",IF(B7>3,TRUE,FALSE))",
+    "array": false,
+    "value": "zero \"qty\""
+  },
+  {
+    "sheet": "订单",
+    "row": 6,
+    "col": 9,
+    "formula": "ROUND(F7,2)=F7",
+    "array": false,
+    "value": "True"
+  },
+  {
+    "sheet": "订单",
+    "row": 7,
+    "col": 3,
+    "formula": "B8*C8",
+    "array": false,
+    "value": "208.95"
+  },
+  {
+    "sheet": "订单",
+    "row": 7,
+    "col": 5,
+    "formula": "IFERROR(D8*VLOOKUP(E8,'Rate''s & FX'!$A$2:$B$4,2,FALSE),\"no rate\")",
+    "array": false,
+    "value": "1629.81"
+  },
+  {
+    "sheet": "订单",
+    "row": 7,
+    "col": 6,
+    "formula": "D8/SUM($D$2:$D$11)",
+    "array": false,
+    "value": "0.1434357302213832"
+  },
+  {
+    "sheet": "订单",
+    "row": 7,
+    "col": 7,
+    "formula": "IF(B8=0,\"zero \"\"qty\"\"\",IF(B8>3,TRUE,FALSE))",
+    "array": false,
+    "value": "False"
+  },
+  {
+    "sheet": "订单",
+    "row": 7,
+    "col": 9,
+    "formula": "ROUND(F8,2)=F8",
+    "array": false,
+    "value": "True"
+  },
+  {
+    "sheet": "订单",
+    "row": 8,
+    "col": 5,
+    "formula": "IFERROR(D9*VLOOKUP(E9,'Rate''s & FX'!$A$2:$B$4,2,FALSE),\"no rate\")",
+    "array": false,
+    "value": "0"
+  },
+  {
+    "sheet": "订单",
+    "row": 8,
+    "col": 6,
+    "formula": "D9/SUM($D$2:$D$11)",
+    "array": false,
+    "value": "0"
+  },
+  {
+    "sheet": "订单",
+    "row": 8,
+    "col": 7,
+    "formula": "IF(B9=0,\"zero \"\"qty\"\"\",IF(B9>3,TRUE,FALSE))",
+    "array": false,
+    "value": "True"
+  },
+  {
+    "sheet": "订单",
+    "row": 8,
+    "col": 9,
+    "formula": "ROUND(F9,2)=F9",
+    "array": false,
+    "value": "True"
+  },
+  {
+    "sheet": "订单",
+    "row": 9,
+    "col": 3,
+    "formula": "B10*C10",
+    "array": false,
+    "value": "179.1"
+  },
+  {
+    "sheet": "订单",
+    "row": 9,
+    "col": 5,
+    "formula": "IFERROR(D10*VLOOKUP(E10,'Rate''s & FX'!$A$2:$B$4,2,FALSE),\"no rate\")",
+    "array": false,
+    "value": "179.1"
+  },
+  {
+    "sheet": "订单",
+    "row": 9,
+    "col": 6,
+    "formula": "D10/SUM($D$2:$D$11)",
+    "array": false,
+    "value": "0.12294491161832846"
+  },
+  {
+    "sheet": "订单",
+    "row": 9,
+    "col": 7,
+    "formula": "IF(B10=0,\"zero \"\"qty\"\"\",IF(B10>3,TRUE,FALSE))",
+    "array": false,
+    "value": "False"
+  },
+  {
+    "sheet": "订单",
+    "row": 9,
+    "col": 9,
+    "formula": "ROUND(F10,2)=F10",
+    "array": false,
+    "value": "True"
+  },
+  {
+    "sheet": "订单",
+    "row": 10,
+    "col": 3,
+    "formula": "B11*C11",
+    "array": false,
+    "value": "497.5"
+  },
+  {
+    "sheet": "订单",
+    "row": 10,
+    "col": 5,
+    "formula": "IFERROR(D11*VLOOKUP(E11,'Rate''s & FX'!$A$2:$B$4,2,FALSE),\"no rate\")",
+    "array": false,
+    "value": "3532.25"
+  },
+  {
+    "sheet": "订单",
+    "row": 10,
+    "col": 6,
+    "formula": "D11/SUM($D$2:$D$11)",
+    "array": false,
+    "value": "0.3415136433842458"
+  },
+  {
+    "sheet": "订单",
+    "row": 10,
+    "col": 7,
+    "formula": "IF(B11=0,\"zero \"\"qty\"\"\",IF(B11>3,TRUE,FALSE))",
+    "array": false,
+    "value": "True"
+  },
+  {
+    "sheet": "订单",
+    "row": 10,
+    "col": 9,
+    "formula": "ROUND(F11,2)=F11",
+    "array": false,
+    "value": "True"
+  }
+]
