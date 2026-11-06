@@ -40,5 +40,6 @@ with OUT.open("w", encoding="utf-8", newline="") as f:
     w = csv.writer(f, lineterminator="\n")
     w.writerow(["订单号", "下单日期", "区域", "金额"])
     w.writerows(rows)
-OUT.with_suffix(".planted.json").write_text(json.dumps(planted, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+# Bytes, not write_text: on Windows text mode turns "\n" into CRLF.
+OUT.with_suffix(".planted.json").write_bytes((json.dumps(planted, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
 print(f"wrote {OUT} ({len(rows)} rows, {len(planted)} planted defects)")
