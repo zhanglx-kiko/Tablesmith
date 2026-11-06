@@ -27,6 +27,22 @@ export function formatNumber(value: number): string {
   return negative ? `-${body}` : body;
 }
 
+/**
+ * The number a cell's text exactly is, or null. Only text that reads back as the very
+ * same number qualifies, so exports never alter a value: "00892", "61.4%", "$1,200" and
+ * 16-digit ids such as "2026110488921001" (beyond Excel's 15 digits) stay text.
+ */
+export function exactNumber(v: string): number | null {
+  if (!/^-?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?$/i.test(v)) return null;
+  const n = Number(v);
+  // Same writer as the importer, so whatever import produced is accepted exactly.
+  if (!Number.isFinite(n) || formatNumber(n) !== v) return null;
+  // Integers longer than Excel's 15 digits are identifiers, not quantities. Decimals keep
+  // their full stored precision (45351.57326388889 came from a number cell).
+  const isInteger = !/[.e]/i.test(v);
+  return isInteger && v.replace(/^-/, '').length > 15 ? null : n;
+}
+
 export function cellToText(cell: GridCell): string {
   if (cell === null) return '';
   if (typeof cell === 'string') return cell;

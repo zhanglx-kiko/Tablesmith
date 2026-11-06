@@ -1,0 +1,33 @@
+{
+  "duplicateKey": [
+    12,
+    40
+  ],
+  "mixedDateFormat": [
+    77
+  ],
+  "variantSpelling": [
+    91
+  ],
+  "numberAsText": [
+    120
+  ],
+  "nonNumeric": [
+    150
+  ],
+  "formulaError": [
+    180
+  ],
+  "whitespace": [
+    200
+  ],
+  "outlier": [
+    222
+  ],
+  "missing": [
+    250
+  ],
+  "duplicateRow": [
+    300
+  ]
+}

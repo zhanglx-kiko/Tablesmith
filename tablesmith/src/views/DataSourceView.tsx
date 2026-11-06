@@ -4,11 +4,13 @@ import {
   Plus,
   ClipboardPaste,
   Download,
+  Stethoscope,
   X,
 } from 'lucide-react';
 import { useDataStore } from '../store/useDataStore';
 import FileDropZone from '../components/FileDropZone';
-import DataTable from '../components/DataTable';
+import DataTable, { type LocateRequest } from '../components/DataTable';
+import HealthPanel from '../components/HealthPanel';
 import ExportModal from '../components/ExportModal';
 import FileTypeIcon from '../components/FileTypeIcon';
 import ImportNotes from '../components/ImportNotes';
@@ -29,6 +31,8 @@ const DataSourceView: React.FC = () => {
   const importer = useFileImport();
   const importing = importer.busyLabel !== null;
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [healthOpen, setHealthOpen] = useState(false);
+  const [locate, setLocate] = useState<LocateRequest | null>(null);
   const [isExporting, setIsExporting] = useState(false);
 
   const activeFile = files[activeFileIndex] ?? null;
@@ -126,6 +130,21 @@ const DataSourceView: React.FC = () => {
               {activeSheet.rows.length} 行 × {activeSheet.headers.length} 列
             </span>
             <button
+              type="button"
+              onClick={() => setHealthOpen((v) => !v)}
+              aria-pressed={healthOpen}
+              data-testid="health-toggle"
+              className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold shadow-xs transition active:scale-95 cursor-pointer ${
+                healthOpen
+                  ? 'border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
+                  : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
+              }`}
+              title="检查当前工作表的重复、空值、格式不一致等问题（只检查，不修改数据）"
+            >
+              <Stethoscope size={13} className="text-blue-500" />
+              数据体检
+            </button>
+            <button
               onClick={() => setIsExportModalOpen(true)}
               className="flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-1.5 text-xs font-semibold text-gray-700 dark:text-gray-200 shadow-xs transition hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-blue-600 dark:hover:text-blue-400 active:scale-95 cursor-pointer"
               title="将当前工作表导出为 Excel 文件"
@@ -206,13 +225,22 @@ const DataSourceView: React.FC = () => {
       {activeFile?.importNotes && <ImportNotes key={activeFileIndex} notes={activeFile.importNotes} />}
 
       {/* Table */}
-      <div className="flex-1 overflow-hidden">
-        {activeSheet ? (
-          <DataTable sheetData={activeSheet} />
-        ) : (
-          <div className="flex h-full items-center justify-center text-sm text-gray-400">
-            无数据
-          </div>
+      <div className="flex flex-1 overflow-hidden">
+        <div className="min-w-0 flex-1 overflow-hidden">
+          {activeSheet ? (
+            <DataTable sheetData={activeSheet} locate={locate} />
+          ) : (
+            <div className="flex h-full items-center justify-center text-sm text-gray-400">
+              无数据
+            </div>
+          )}
+        </div>
+        {healthOpen && activeSheet && (
+          <HealthPanel
+            sheet={activeSheet}
+            onClose={() => setHealthOpen(false)}
+            onLocate={(row, column) => setLocate((prev) => ({ row, column, seq: (prev?.seq ?? 0) + 1 }))}
+          />
         )}
       </div>
 

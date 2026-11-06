@@ -362,3 +362,10 @@ html:not(.dark) optgroup {
     min-height: auto !important;
   }
 }
+
+/* Cell located from the data health panel: stays outlined until another is located. */
+.ag-theme-alpine .ts-located-cell,
+.ag-theme-alpine-dark .ts-located-cell {
+  box-shadow: inset 0 0 0 2px #3b82f6;
+  background-color: rgba(59, 130, 246, 0.12);
+}

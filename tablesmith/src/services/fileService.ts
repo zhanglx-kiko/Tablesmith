@@ -15,7 +15,7 @@ import {
   type ReadFileResponse,
 } from './import';
 import { parseBytesInWorker, parsePayloadInWorker } from './import/client';
-import { formatNumber } from './import/cellText';
+import { exactNumber } from './import/cellText';
 
 export { ImportError, SUPPORTED_EXTENSIONS, type ImportResult } from './import';
 
@@ -238,22 +238,6 @@ export function exportRows(data: SheetData, content: ExportContent): string[][] 
 }
 
 /**
- * The number a cell's text exactly is, or null. Only text that reads back as the very
- * same number qualifies, so exports never alter a value: "00892", "61.4%", "$1,200" and
- * 16-digit ids such as "2026110488921001" (beyond Excel's 15 digits) stay text.
- */
-export function exactNumber(v: string): number | null {
-  if (!/^-?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?$/i.test(v)) return null;
-  const n = Number(v);
-  // Same writer as the importer, so whatever import produced is accepted exactly.
-  if (!Number.isFinite(n) || formatNumber(n) !== v) return null;
-  // Integers longer than Excel's 15 digits are identifiers, not quantities. Decimals keep
-  // their full stored precision (45351.57326388889 came from a number cell).
-  const isInteger = !/[.e]/i.test(v);
-  return isInteger && v.replace(/^-/, '').length > 15 ? null : n;
-}
-
-/**
  * A sheet name Excel accepts: at most 31 characters, none of : \ / ? * [ ], no leading or
  * trailing apostrophe, not empty and not the reserved "History". Only the sheet tab name
  * changes; cell values are untouched.
@@ -267,6 +251,8 @@ export function excelSheetName(name: string): string {
   if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1);
   return cut.replace(/'+$/, '');
 }
+
+export { exactNumber };
 
 export interface BuiltExport {
   extension: string;

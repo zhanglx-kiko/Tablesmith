@@ -29,12 +29,22 @@ function isNumericColumn(rows: string[][], col: number): boolean {
   return filled > 0 && numeric / filled >= 0.8;
 }
 
-interface DataTableProps {
-  sheetData: SheetData;
+/** Request to scroll to a data row (and column) and flash it; `seq` makes repeats fire. */
+export interface LocateRequest {
+  row: number;
+  column?: number;
+  seq: number;
 }
 
-const DataTable: React.FC<DataTableProps> = ({ sheetData }) => {
+interface DataTableProps {
+  sheetData: SheetData;
+  locate?: LocateRequest | null;
+}
+
+const DataTable: React.FC<DataTableProps> = ({ sheetData, locate }) => {
   const gridApiRef = useRef<GridApi | null>(null);
+  /** Cell picked in the health panel, outlined until another cell is located. */
+  const locatedRef = useRef<{ rowId: string; colId: string | null } | null>(null);
   const theme = useDataStore((s) => s.theme);
   const tableZoom = useDataStore((s) => s.tableZoom);
   const setTableZoom = useDataStore((s) => s.setTableZoom);
@@ -85,6 +95,12 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData }) => {
           // Right-align numeric cells only; the `rightAligned` type would also flip the header
           // and move the filter button to the left.
           cellClass: numeric ? 'ag-right-aligned-cell' : undefined,
+          cellClassRules: {
+            'ts-located-cell': (p) => {
+              const loc = locatedRef.current;
+              return Boolean(loc && p.node.id === loc.rowId && (loc.colId === null || loc.colId === `c${i}`));
+            },
+          },
           // Sorting always uses the raw value, never the formatted text.
           comparator: (_a, _b, nodeA, nodeB) =>
             compareCellsNumeric(nodeA.data?.[`r${i}`] ?? '', nodeB.data?.[`r${i}`] ?? ''),
@@ -144,6 +160,28 @@ const DataTable: React.FC<DataTableProps> = ({ sheetData }) => {
   const handleGridReady = useCallback((params: GridReadyEvent) => {
     gridApiRef.current = params.api;
   }, []);
+
+  // Scroll to and flash a row picked in the health panel. A row hidden by a column
+  // filter cannot be shown, so filters are cleared first (the footer shows that).
+  useEffect(() => {
+    const api = gridApiRef.current;
+    if (!api || !locate) return;
+    let node = api.getRowNode(`row_${locate.row}`);
+    if (node && !node.displayed) {
+      api.setFilterModel(null);
+      node = api.getRowNode(`row_${locate.row}`);
+    }
+    if (!node || node.rowIndex === null) return;
+    api.ensureIndexVisible(node.rowIndex, 'middle');
+    const colId = locate.column === undefined ? null : `c${locate.column}`;
+    if (colId) api.ensureColumnVisible(colId, 'middle');
+    // The outline stays (cell focus is suppressed in this grid), so the cell is easy to
+    // find again after reading the finding; the flash just draws the eye.
+    const previous = locatedRef.current ? api.getRowNode(locatedRef.current.rowId) : undefined;
+    locatedRef.current = { rowId: node.id ?? `row_${locate.row}`, colId };
+    api.refreshCells({ rowNodes: previous ? [previous, node] : [node], force: true });
+    api.flashCells({ rowNodes: [node], columns: colId ? [colId] : undefined, flashDuration: 1200, fadeDuration: 600 });
+  }, [locate]);
 
   const handleFilterChanged = useCallback(() => {
     const api = gridApiRef.current;
